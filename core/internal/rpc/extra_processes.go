@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/shlex"
 	"RawlineCore/gen"
 	"RawlineCore/internal/process"
+	"github.com/google/shlex"
 )
 
 // All entries are owned by the running configuration, under lifecycleMu.
@@ -280,7 +280,22 @@ func launchExtraProcess(session *extraSession, path string, template []string, n
 		child.EnableStdinShutdown("STOP")
 		child.SetSupervised()
 		health = newTransportHealth(session.backend == "", nil)
-		child.SetOutputObserver(func(b []byte) { health.accept(string(b)) })
+		child.SetOutputObserver(func(b []byte) {
+			line := string(b)
+			health.accept(line)
+			if session.backend == "freeturn" {
+				switch strings.TrimSpace(line) {
+				case "FATAL_FREETURN: Cannot read FreeTurn launch configuration",
+					"FATAL_FREETURN: Invalid FreeTurn relay configuration",
+					"FATAL_FREETURN: Cannot load FreeTurn client ID",
+					"FATAL_FREETURN: Cannot initialize FreeTurn WireGuard tunnel",
+					"FATAL_FREETURN: Cannot open FreeTurn local SOCKS listener",
+					"FATAL_FREETURN: Cannot initialize FreeTurn relay session",
+					"FATAL_FREETURN: FreeTurn relay session ended with an error":
+					fmt.Println(strings.TrimSpace(line))
+				}
+			}
+		})
 	}
 	child.SetCleanupPath(folder)
 	if err := child.Start(); err != nil {

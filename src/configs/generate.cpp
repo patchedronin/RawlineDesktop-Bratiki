@@ -1817,7 +1817,7 @@ namespace Configs {
                 if (!settings.vpn_stack.isEmpty()) {
                     if (!QStringList{"system", "gvisor", "mixed"}.contains(settings.vpn_stack)) {
                         ctx.error = QObject::tr("Unknown TUN stack");
-                        return {};
+                        return;
                     }
                     inboundObj["stack"] = settings.vpn_stack;
                 }

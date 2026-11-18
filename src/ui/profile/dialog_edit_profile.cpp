@@ -432,8 +432,10 @@ void DialogEditProfile::fitToContent() {
     const auto margins = layout()->contentsMargins();
     const QSize preferred = ui->dialog_layout->sizeHint() + QSize(margins.left() + margins.right() + 20,
         margins.top() + margins.bottom() + ui->buttonBox->sizeHint().height() + layout()->spacing());
-    resize(preferred.boundedTo(screen()->availableGeometry().size() * .9));
-    adjustPosition(mainwindow);
+    const auto available = screen()->availableGeometry().adjusted(12, 32, -12, -24);
+    resize(preferred.boundedTo(available.size()));
+    move(QPoint(qBound(available.left(), x(), qMax(available.left(), available.right() - width() + 1)),
+                qBound(available.top(), y(), qMax(available.top(), available.bottom() - height() + 1))));
 }
 
 bool DialogEditProfile::onEnd() {

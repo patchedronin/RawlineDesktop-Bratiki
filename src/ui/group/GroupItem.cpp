@@ -5,6 +5,7 @@
 #include "include/ui/utils/GuiUtils.hpp"
 #include "include/configs/sub/GroupUpdater.hpp"
 
+#include <QLayout>
 #include <QMessageBox>
 #include <QPointer>
 
@@ -43,6 +44,8 @@ GroupItem::GroupItem(QWidget *parent, const std::shared_ptr<Configs::Group> &ent
     if (ent == nullptr) return;
 
     ui->subinfo->setTextFormat(Qt::PlainText);
+    ui->subinfo->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    ui->url->setTextFormat(Qt::PlainText);
 
     connect(this, &GroupItem::edit_clicked, this, &GroupItem::on_edit_clicked);
     connect(Subscription::updater(), &Subscription::GroupUpdater::asyncUpdateCallback, this, [=,this](int gid) { if (gid == this->ent->id) refresh_data(); });
@@ -81,13 +84,13 @@ void GroupItem::refresh_data() {
         } else {
             ui->subinfo->show();
             ui->subinfo->setText(info.join(" | "));
+            ui->subinfo->setToolTip(ui->subinfo->text().toHtmlEscaped());
         }
     }
     runOnThread(
         [=,this] {
-            adjustSize();
-            item->setSizeHint(sizeHint());
-            dynamic_cast<QWidget *>(parent())->adjustSize();
+            layout()->activate();
+            item->setSizeHint(QSize(minimumSizeHint().width(), sizeHint().height()));
         },
         this);
 }

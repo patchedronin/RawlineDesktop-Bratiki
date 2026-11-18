@@ -273,6 +273,13 @@ jobs:
         shell: bash
         run: |
           GOOS=${{ matrix.cross_os }} GOARCH=${{ matrix.cross_arch }} ./script/build_go.sh
+      - name: Test FreeTurn through a local WireGuard server
+        if: steps.cache-common.outputs.cache-hit != 'true' && matrix.cross_os == 'linux' && matrix.cross_arch == 'amd64'
+        working-directory: freeturn-source
+        env:
+          CGO_ENABLED: '0'
+          GOFLAGS: '-ldflags=-checklinkname=0'
+        run: go test -mod=mod ./cmd/rawline -run '^TestSOCKSThroughServerAndWireGuard$' -count=1
       - name: Tar files
         if: steps.cache-common.outputs.cache-hit != 'true'
         run: tar czf artifacts.tgz ./deployment
