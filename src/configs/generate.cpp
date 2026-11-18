@@ -1175,10 +1175,14 @@ namespace Configs {
                     selectors.suffixes = match.suffixes;
                     selectors.keywords = match.keywords;
                     selectors.regexes = match.regexes;
-                    for (const auto &name : match.ruleSets) {
-                        if (ruleSetUrl(name.toStdString()).empty()) continue;
-                        if (!preReqs.routing.neededRuleSets.contains(name)) preReqs.routing.neededRuleSets << name;
-                        selectors.ruleSets << name;
+                    for (const auto &entry : match.ruleSets) {
+                        const QUrl url(entry);
+                        const bool remoteRuleSet = url.isValid() && !url.host().isEmpty() &&
+                            (url.scheme() == "https" || url.scheme() == "http") && url.fileName().contains(".srs");
+                        if (!remoteRuleSet && ruleSetUrl(entry.toStdString()).empty()) continue;
+                        if (!preReqs.routing.neededRuleSets.contains(entry)) preReqs.routing.neededRuleSets << entry;
+                        const auto tag = remoteRuleSet ? get_rule_set_name(entry) : entry;
+                        if (!selectors.ruleSets.contains(tag)) selectors.ruleSets << tag;
                     }
                     if (selectors.hasInlineConditions() || !selectors.ruleSets.isEmpty()) preReqs.dns.user << std::make_pair(rule, selectors);
                 }

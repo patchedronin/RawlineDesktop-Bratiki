@@ -1520,6 +1520,27 @@ proxies:
         }
         settings->vpn_stack = oldStack;
         const auto live = Configs::BuildSingBoxConfig(testProfiles.first());
+        const auto oldDnsRules = settings->dns_rules;
+        const auto oldDnsObject = settings->use_dns_object;
+        const QString dnsRuleSetUrl = "https://example.org/dns-test.srs";
+        settings->dns_rules = R"([{"enabled":true,"sites":["rule-set:https://example.org/dns-test.srs"],"server":"1.1.1.1","direct":false}])";
+        settings->use_dns_object = false;
+        const auto customDns = Configs::BuildSingBoxConfig(testProfiles.first());
+        settings->dns_rules = oldDnsRules;
+        settings->use_dns_object = oldDnsObject;
+        QString ruleSetTag;
+        for (const auto &value : customDns->coreConfig["route"].toObject()["rule_set"].toArray()) {
+            const auto set = value.toObject();
+            if (set["url"].toString() == dnsRuleSetUrl) ruleSetTag = set["tag"].toString();
+        }
+        bool customDnsMatched = false;
+        for (const auto &value : customDns->coreConfig["dns"].toObject()["rules"].toArray()) {
+            const auto rule = value.toObject();
+            if (rule["rule_set"].toArray().contains(ruleSetTag) && rule["server"].toString().startsWith("dns-user"))
+                customDnsMatched = true;
+        }
+        check(customDns->error.isEmpty() && !ruleSetTag.isEmpty() && customDnsMatched,
+              "custom DNS rule set is registered and linked to its resolver");
         settings->spmode_vpn = oldTun;
         settings->vpn_ipv6 = oldIPv6;
         check(live->error.isEmpty(), "qWDTT live configuration builds");
