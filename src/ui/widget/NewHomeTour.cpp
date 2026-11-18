@@ -3,6 +3,7 @@
 #include "include/ui/widget/NewHome.hpp"
 
 #include "include/ui/mainwindow.h"
+#include "include/ui/profile/dialog_edit_profile.h"
 #include "include/ui/setting/ThemeManager.hpp"
 #include "include/configs/sub/GroupUpdater.hpp"
 #include "include/database/SettingsRepo.h"
@@ -11,6 +12,7 @@
 #include <QApplication>
 #include <QBoxLayout>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
 #include <QTextStream>
@@ -26,6 +28,7 @@
 #include <QTabWidget>
 #include <QTimer>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 
@@ -82,6 +85,20 @@ namespace {
         }
         // Armed first: a step that opens a modal dialog returns only once the dialog is closed.
         QTimer::singleShot(1400, qApp, [tour, name = name] {
+            if (name == QLatin1String("edit-freeturn")) {
+                DialogEditProfile *dialog = nullptr;
+                for (auto *widget : QApplication::topLevelWidgets()) {
+                    if (auto *editor = qobject_cast<DialogEditProfile *>(widget); editor && editor->isVisible()) {
+                        dialog = editor;
+                        break;
+                    }
+                }
+                auto *box = dialog ? dialog->findChild<QDialogButtonBox *>() : nullptr;
+                auto *ok = box ? box->button(QDialogButtonBox::Ok) : nullptr;
+                if (!ok || !ok->isVisible() ||
+                    !dialog->screen()->availableGeometry().contains(QRect(ok->mapToGlobal(QPoint()), ok->size())))
+                    qFatal("The FreeTurn save button is outside the available screen");
+            }
             if (!name.isEmpty()) tour->shoot(name);
             tour->clear();
             next(tour);
@@ -253,6 +270,10 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
         }
         s << std::pair{QStringLiteral("edit-profile"), std::function<void()>([home, mw] {
             if (auto *h = home(); h->m_list->model() && h->m_list->model()->rowCount() > 0) mw->on_profilesTableView_doubleClicked(h->m_list->model()->index(0, 0));
+        })};
+        s << std::pair{QStringLiteral("edit-freeturn"), std::function<void()>([mw] {
+            auto *editor = new DialogEditProfile("freeturn", Configs::dataManager->settingsRepo->current_group, mw);
+            editor->setAttribute(Qt::WA_DeleteOnClose);
         })};
         // The settings dialog page by page: it holds most of the program's fields.
         s << std::pair{QStringLiteral("settings"), std::function<void()>(action(mw->ui->menu_basic_settings))};
