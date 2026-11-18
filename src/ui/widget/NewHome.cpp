@@ -1738,9 +1738,18 @@ NewHome::NewHome(MainWindow *window) : QWidget(nullptr), mw(window) {
     root->setSpacing(0);
     m_titleBar = new NewTitleBar(this);
     root->addWidget(m_titleBar);
-    m_columns = new QHBoxLayout;
+    m_contentScroll = new QScrollArea(this);
+    m_contentScroll->setFrameShape(QFrame::NoFrame);
+    m_contentScroll->viewport()->setAutoFillBackground(false);
+    m_contentScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_contentScroll->setWidgetResizable(true);
+    auto *content = new QWidget;
+    m_columns = new QHBoxLayout(content);
+    m_columns->setSizeConstraint(QLayout::SetMinimumSize);
     m_columns->setSpacing(12);
-    root->addLayout(m_columns, 1);
+    m_contentScroll->setWidget(content);
+    content->setAutoFillBackground(false);
+    root->addWidget(m_contentScroll, 1);
 
     // The header and the connect button in a side column, so the server list keeps the full height.
     m_side = new QWidget(this);
@@ -2774,9 +2783,12 @@ QSize NewHome::windowMinimum() {
     m_columns->invalidate();
     layout()->invalidate();
     layout()->activate();
-    const int neededHeight = std::max(layout()->minimumSize().height(), layout()->minimumHeightForWidth(width()));
-    setMinimumHeight(neededHeight);
-    QSize size = minimumSizeHint().expandedTo(QSize(0, neededHeight));
+    const auto outer = layout()->contentsMargins();
+    QSize size = m_columns->minimumSize() + QSize(outer.left() + outer.right(),
+        outer.top() + outer.bottom() + m_titleBar->height());
+    size.rwidth() += m_contentScroll->verticalScrollBar()->sizeHint().width();
+    if (const auto *display = screen())
+        size.setHeight(std::min(size.height(), display->availableGeometry().height() * 3 / 4));
     // The centering margins follow the window's width: counted in, the window could never narrow.
     const QMargins room = m_columns->contentsMargins();
     size.rwidth() -= room.left() + room.right();
@@ -2786,7 +2798,8 @@ QSize NewHome::windowMinimum() {
 void NewHome::updateCentering() {
     const bool centered = Configs::dataManager->settingsRepo->new_layout_panel == QLatin1String("center");
     const int contentWidth = std::max(480, m_bodyLayout->minimumSize().width());
-    const int margin = centered ? std::max(0, (width() - 32 - contentWidth) / 2) : 0;
+    const int scrollBarWidth = m_contentScroll->verticalScrollBar()->sizeHint().width();
+    const int margin = centered ? std::max(0, (m_contentScroll->width() - scrollBarWidth - contentWidth) / 2) : 0;
     m_columns->setContentsMargins(margin, 0, margin, 0);
 }
 
@@ -2883,18 +2896,6 @@ void NewHome::setArranging(bool on) {
         Configs::dataManager->settingsRepo->new_layout_tutorial = QStringLiteral("seen");
         Configs::dataManager->settingsRepo->Save();
     });
-}
-
-bool NewHome::event(QEvent *event) {
-    const bool handled = QWidget::event(event);
-    if (event->type() == QEvent::LayoutRequest && m_columns && m_sideLayout) {
-        const int neededHeight = std::max(layout()->minimumSize().height(), layout()->minimumHeightForWidth(width()));
-        if (minimumHeight() != neededHeight) {
-            setMinimumHeight(neededHeight);
-            if (m_attached) mw->applyTopBarMetrics();
-        }
-    }
-    return handled;
 }
 
 void NewHome::resizeEvent(QResizeEvent *event) {

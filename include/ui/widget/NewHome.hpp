@@ -16,6 +16,7 @@ namespace Configs { class Group; }
 
 class MainWindow;
 class QBoxLayout;
+class QScrollArea;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
@@ -231,7 +232,6 @@ public:
     static void runTour(MainWindow *mw, const QString &dir);
 
 protected:
-    bool event(QEvent *event) override;
     void paintEvent(QPaintEvent *) override;
     void resizeEvent(QResizeEvent *) override;
     void mouseMoveEvent(QMouseEvent *) override;
@@ -259,6 +259,7 @@ private:
 
     MainWindow *mw;
     QHBoxLayout *m_columns = nullptr;
+    QScrollArea *m_contentScroll = nullptr;
     QWidget *m_side = nullptr;
     QVBoxLayout *m_sideLayout = nullptr;
     QVBoxLayout *m_bodyLayout = nullptr;
