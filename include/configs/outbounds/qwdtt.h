@@ -22,6 +22,9 @@ namespace Configs {
         int directPort = 56002;
         QString diagKey;
         QString customTurnIps;
+        bool rawPortProvided = false;
+        bool directPortProvided = false;
+        bool customTurnIpsProvided = false;
         int workers = 9;
         bool turnTCP = true;
         QString obfs = "audio";

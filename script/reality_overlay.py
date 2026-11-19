@@ -84,6 +84,13 @@ def main():
         assert text.count(old) == 1, 'sing-box WireGuard endpoint changed; review script/reality_overlay.py'
         text = text.replace(old, new)
     endpoint.write_text(text, encoding='utf-8', newline='\n')
+    patch = Path("sing-box-urltest.patch").resolve()
+    subprocess.run(
+        ["git", "apply", "--whitespace=error", str(patch)],
+        cwd=copy,
+        env={**os.environ, "GIT_CEILING_DIRECTORIES": str(work)},
+        check=True,
+    )
     # gomobile builds outside the module and refuses -modfile: the Android build (a CI checkout) edits go.mod itself.
     if sys.argv[1:] == ['--in-place']:
         assert not legacy, 'the Android build needs Go 1.27'

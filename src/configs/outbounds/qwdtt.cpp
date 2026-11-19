@@ -91,10 +91,13 @@ bool qwdtt::ParseFromJson(const QJsonObject &o) {
     password = o.contains("password") ? o["password"].toString() : o["pass"].toString();
     const QString givenMode = o["mode"].toString().toLower();
     mode = normalizedMode(givenMode.isEmpty() && dataManager ? dataManager->settingsRepo->relay_default_qwdtt_mode : givenMode);
+    rawPortProvided = o["raw_port"].toInt(-1) != -1 || o["rawPort"].toInt(-1) != -1 || o["raw"].toInt(-1) != -1;
     rawPort = o["raw_port"].toInt(o["rawPort"].toInt(o["raw"].toInt(56003)));
+    directPortProvided = o["direct_port"].toInt(-1) != -1 || o["directPort"].toInt(-1) != -1 || o["direct"].toInt(-1) != -1;
     directPort = o["direct_port"].toInt(o["directPort"].toInt(o["direct"].toInt(56002)));
     diagKey = o["diag_key"].toString(o["diagKey"].toString(o["dk"].toString())).trimmed();
     if (!diagKey.isEmpty() && QByteArray::fromBase64(diagKey.toLatin1(), QByteArray::Base64UrlEncoding | QByteArray::AbortOnBase64DecodingErrors).size() != 32) return false;
+    customTurnIpsProvided = o["custom_turn_ips"].isString();
     customTurnIps = o["custom_turn_ips"].toString().trimmed();
     workers = o["workers"].toInt(o["workersPerHash"].toInt(9));
     turnTCP = o["turn_tcp"].toBool(true);

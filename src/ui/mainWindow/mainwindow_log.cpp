@@ -5,11 +5,12 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDateTime>
-#include <QDesktopServices>
+#include <QFileDialog>
 #include <QDir>
 #include <QFile>
 #include <QMimeData>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QUrl>
@@ -390,17 +391,18 @@ void MainWindow::sendLogs() {
 
     QString dir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
     if (dir.isEmpty() || !QDir(dir).exists()) dir = QDir::homePath();
-    const QString path = QDir(dir).filePath(QStringLiteral("Rawline-log-%1.txt").arg(now.toString(QStringLiteral("yyyyMMdd-HHmmss"))));
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write((header + text).toUtf8()) < 0) {
+    const QString suggested = QDir(dir).filePath(QStringLiteral("Rawline-log-%1.txt").arg(now.toString(QStringLiteral("yyyyMMdd-HHmmss"))));
+    const auto path = QFileDialog::getSaveFileName(this, tr("Send logs"), suggested, tr("Text files (*.txt)"));
+    if (path.isEmpty()) return;
+    const auto bytes = (header + text).toUtf8();
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
         MessageBoxWarning(tr("Send logs"), tr("Could not save the log: %1").arg(file.errorString()));
         return;
     }
-    file.close();
-    // As a file on the clipboard it pastes straight into a messenger; the folder opens for anything else.
+    // As a file on the clipboard it pastes straight into a messenger.
     auto *mime = new QMimeData;
     mime->setUrls({QUrl::fromLocalFile(path)});
     QApplication::clipboard()->setMimeData(mime);
-    QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
     showNotice(tr("The log is saved and copied: paste it into a chat. %1").arg(QDir::toNativeSeparators(path)), 6000);
 }

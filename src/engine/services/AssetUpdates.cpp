@@ -7,6 +7,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QFileInfo>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QTimer>
 
@@ -47,12 +48,42 @@ namespace Engine::AssetUpdates {
             return file == GeoFile::GeoIp ? QStringLiteral("geoip.dat") : QStringLiteral("geosite.dat");
         }
 
+        bool validateGeo(GeoFile file, const QByteArray &body) {
+            QProcess validator;
+            const auto kind = file == GeoFile::GeoIp ? QStringLiteral("geoip") : QStringLiteral("geosite");
+            validator.start(Configs::FindCoreRealPath(), {"--validate-geo", kind});
+            if (!validator.waitForStarted(10000)) return false;
+            if (validator.write(body) != body.size()) return false;
+            validator.closeWriteChannel();
+            if (!validator.waitForFinished(60000)) {
+                validator.kill();
+                validator.waitForFinished();
+                return false;
+            }
+            return validator.exitStatus() == QProcess::NormalExit && validator.exitCode() == 0;
+        }
+
         QString assetGeoFilePath(GeoFile file) {
             return Configs::GetBasePath() + "/" + assetGeoFileName(file);
         }
 
         bool assetGeoPresent(GeoFile file) {
             return QFileInfo(assetGeoFilePath(file)).isFile();
+        }
+
+        void UpdateNextAutomaticGeoFile(QList<GeoFile> pending) {
+            if (!Configs::dataManager->settingsRepo->xray_geo_auto_update || GeoUpdateRunning()) return;
+            const auto now = QDateTime::currentSecsSinceEpoch();
+            for (const auto &status : GeoStatus()) {
+                if (!pending.contains(status.file) || !GeoUpdateDue(status.modifiedAt, now)) continue;
+                pending.removeAll(status.file);
+                GeoRequest request;
+                request.files = {status.file};
+                UpdateGeoAssets(request, [pending](const QList<GeoFileResult> &) {
+                    if (!pending.isEmpty()) UpdateNextAutomaticGeoFile(pending);
+                });
+                return;
+            }
         }
 
         QString assetGeoConfiguredUrl(GeoFile file) {
@@ -152,7 +183,8 @@ namespace Engine::AssetUpdates {
                     result.skipped = true;
                     continue;
                 }
-                result.error = NetworkRequestHelper::DownloadAsset(result.url, result.fileName);
+                result.error = NetworkRequestHelper::DownloadAsset(result.url, result.fileName, false, false,
+                    [file = result.file](const QByteArray &body) { return validateGeo(file, body); });
                 if (result.error.isEmpty()) {
                     MW_show_log(QStringLiteral("[Geo assets] Downloaded %1.").arg(result.fileName));
                 } else {
@@ -173,14 +205,7 @@ namespace Engine::AssetUpdates {
 
     void CheckAutomaticGeoUpdates() {
         ENGINE_CHECK_MAIN_THREAD();
-        if (!Configs::dataManager->settingsRepo->xray_geo_auto_update || GeoUpdateRunning()) return;
-        GeoRequest request;
-        request.files.clear();
-        const auto now = QDateTime::currentSecsSinceEpoch();
-        for (const auto &status : GeoStatus()) {
-            if (GeoUpdateDue(status.modifiedAt, now)) request.files << status.file;
-        }
-        if (!request.files.isEmpty()) UpdateGeoAssets(request, {});
+        UpdateNextAutomaticGeoFile({GeoFile::GeoIp, GeoFile::GeoSite});
     }
 
     void StartAutomaticGeoUpdates(QObject *owner) {

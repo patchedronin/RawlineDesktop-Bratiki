@@ -67,7 +67,7 @@ void MainWindow::applyTopBarMetrics() {
     const int topBarWidth = ui->horizontalLayout_2->minimumSize().width() + margins.left() + margins.right();
     // The new interface has no top bar and goes down to a phone's width.
     if (NewStyle::active() && newHome) {
-        setMinimumSize(newHome->windowMinimum().expandedTo(QSize(360, 480)));
+        setMinimumSize(newHome->windowMinimum().expandedTo(QSize(360, 0)));
         return;
     }
     setMinimumSize(qMax(designMinimumSize.width(), topBarWidth),

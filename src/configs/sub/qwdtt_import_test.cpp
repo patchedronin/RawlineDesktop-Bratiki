@@ -10,6 +10,7 @@
 #include "include/ui/widget/RestartNotice.hpp"
 #include <QStandardItemModel>
 #include "include/configs/outbounds/qwdtt.h"
+#include "include/ui/setting/dialog_servers.h"
 #include "include/configs/outbounds/csqtt.h"
 #include "include/configs/outbounds/wdttplus.h"
 #include "include/configs/outbounds/mrtt.h"
@@ -96,6 +97,14 @@ int TestQwdttImport() {
     const auto check = [&failures](bool ok, const char *name) {
         if (!ok) { qCritical() << "qWDTT import test failed:" << name; ++failures; }
     };
+    {
+        QJsonObject nullable{{"type", "qwdtt"}, {"peer", "192.0.2.1:56000"}, {"password", "fixture"}};
+        for (const auto *key : {"raw_port", "direct_port", "custom_turn_ips"})
+            nullable[key] = QJsonValue(QJsonValue::Null);
+        Configs::qwdtt fromNull;
+        check(fromNull.ParseFromJson(nullable) && !fromNull.rawPortProvided && !fromNull.directPortProvided &&
+              !fromNull.customTurnIpsProvided, "null subscription fields are absent, not resets");
+    }
     for (const QString extra : {QStringLiteral("null"), QStringLiteral("{}"), QString()}) {
         Configs::ParseDiag::Scope diagnostics;
         Configs::xrayXHTTP xhttp;
@@ -1032,6 +1041,11 @@ proxies:
         Configs::qwdtt restored;
         check(restored.ParseFromLink(updated.ExportToLink()) && restored.ExportToJson()["hashes"] == updated.ExportToJson()["hashes"] && restored.diagKey == updated.diagKey,
               "qWDTT 1.4.5 share round trip");
+        const QString adminPassword = "a:b# c%+";
+        Configs::wdttplus admin;
+        check(admin.ParseFromLink(ServerLinks::LegacyWdtt({{"host", "192.0.2.1"}, {"peerPort", "56000"}},
+              adminPassword, {hash})) && admin.password == adminPassword,
+              "qWDTT administration legacy share preserves the password on import");
         check(fresh.workers == 18 && fresh.server_port == 56000 && fresh.wgPort == 56001 && fresh.localPort == 9000 && fresh.turnSni == "ya.ru" && fresh.deviceID == sibling.deviceID,
               "new WDTT Plus profiles follow the app's defaults and this computer's device id");
         check(EditWdttPlus::HashVerdict("ok") == QStringLiteral("TURN доступен") && EditWdttPlus::HashVerdict("Weird").contains(QStringLiteral("Диагностика")),

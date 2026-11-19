@@ -171,7 +171,8 @@ namespace Configs_network {
         return {};
     }
 
-    QString NetworkRequestHelper::DownloadAsset(const QString &url, const QString &fileName, bool useProxy, bool strictTls) {
+    QString NetworkRequestHelper::DownloadAsset(const QString &url, const QString &fileName, bool useProxy, bool strictTls,
+                                                const std::function<bool(const QByteArray &)> &validate) {
         QNetworkRequest request;
         QNetworkAccessManager accessManager;
         accessManager.setTransferTimeout(kDownloadAssetIdleTimeoutMs);
@@ -224,6 +225,8 @@ namespace Configs_network {
         if (body.isEmpty()) {
             return QObject::tr("Download failed: the server returned an empty response.");
         }
+
+        if (validate && !validate(body)) return QObject::tr("Invalid downloaded asset.");
 
         const auto filePath = Configs::GetBasePath() + "/" + fileName;
         QSaveFile tmp(filePath);

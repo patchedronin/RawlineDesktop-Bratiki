@@ -1,1 +1,2 @@
 *.sh text eol=lf
+core/sing-box-urltest.patch text eol=lf whitespace=-blank-at-eol,-space-before-tab

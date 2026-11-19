@@ -1,0 +1,183 @@
+--- a/common/urltest/urltest.go
++++ b/common/urltest/urltest.go
+@@ -59,6 +59,31 @@
+ 	delete(s.delayHistory, tag)
+ 	s.notifyUpdated()
+ 	s.access.Unlock()
++}
++
++// LoadDirectSample observes the outbound the caller itself will dial.
++func (s *HistoryStorage) LoadDirectSample(member adapter.Outbound) (string, *adapter.URLTestHistory) {
++	if s == nil || member == nil {
++		return "", nil
++	}
++	if _, isGroup := member.(adapter.OutboundGroup); isGroup {
++		return "", nil
++	}
++	tag := member.Tag()
++	return tag, s.LoadURLTestHistory(tag)
++}
++
++// DeleteURLTestHistoryIfCurrent invalidates only the sample observed before the failed attempt.
++func (s *HistoryStorage) DeleteURLTestHistoryIfCurrent(tag string, expected *adapter.URLTestHistory) {
++	if expected == nil {
++		return
++	}
++	s.access.Lock()
++	defer s.access.Unlock()
++	if s.delayHistory[tag] == expected {
++		delete(s.delayHistory, tag)
++		s.notifyUpdated()
++	}
+ }
+ 
+ func (s *HistoryStorage) StoreURLTestHistory(tag string, history *adapter.URLTestHistory) {
+--- a/protocol/group/urltest.go
++++ b/protocol/group/urltest.go
+@@ -183,12 +183,15 @@
+ 	if outbound == nil {
+ 		return nil, E.New("missing supported outbound")
+ 	}
++	tag, sample := s.group.history.LoadDirectSample(outbound)
+ 	conn, err := outbound.DialContext(ctx, network, destination)
+ 	if err == nil {
+ 		return s.group.interruptGroup.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
+ 	}
+ 	s.logger.ErrorContext(ctx, err)
+-	s.group.history.DeleteURLTestHistory(outbound.Tag())
++	if ctx.Err() == nil {
++		s.group.history.DeleteURLTestHistoryIfCurrent(tag, sample)
++	}
+ 	return nil, err
+ }
+ 
+@@ -201,12 +204,15 @@
+ 	if outbound == nil {
+ 		return nil, E.New("missing supported outbound")
+ 	}
++	tag, sample := s.group.history.LoadDirectSample(outbound)
+ 	conn, err := outbound.ListenPacket(ctx, destination)
+ 	if err == nil {
+ 		return s.group.interruptGroup.NewPacketConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
+ 	}
+ 	s.logger.ErrorContext(ctx, err)
+-	s.group.history.DeleteURLTestHistory(outbound.Tag())
++	if ctx.Err() == nil {
++		s.group.history.DeleteURLTestHistoryIfCurrent(tag, sample)
++	}
+ 	return nil, err
+ }
+ 
+--- a/route/conn.go
++++ b/route/conn.go
+@@ -106,6 +106,7 @@
+ }
+ 
+ func (m *ConnectionManager) NewConnection(ctx context.Context, this N.Dialer, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
++	historyTag, sample := m.urlTestSample(metadata.OutboundChain)
+ 	ctx = adapter.WithContext(ctx, &metadata)
+ 	var (
+ 		remoteConn net.Conn
+@@ -128,8 +129,10 @@
+ 			dialerString = " using outbound/" + outbound.Type() + "[" + outbound.Tag() + "]"
+ 		}
+ 		err = E.Cause(err, "open connection to ", remoteString, dialerString)
+-		m.deleteURLTestHistory(metadata.OutboundChain)
+-		notifyDialFailure(metadata.OutboundChain, N.NetworkTCP, err)
++		if ctx.Err() == nil {
++			m.urlTestHistory.DeleteURLTestHistoryIfCurrent(historyTag, sample)
++			notifyDialFailure(metadata.OutboundChain, N.NetworkTCP, err)
++		}
+ 		N.CloseOnHandshakeFailure(conn, onClose, err)
+ 		m.logger.ErrorContext(ctx, err)
+ 		return
+@@ -182,6 +185,7 @@
+ }
+ 
+ func (m *ConnectionManager) NewPacketConnection(ctx context.Context, this N.Dialer, conn N.PacketConn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
++	historyTag, sample := m.urlTestSample(metadata.OutboundChain)
+ 	ctx = adapter.WithContext(ctx, &metadata)
+ 	var (
+ 		remotePacketConn   net.PacketConn
+@@ -218,8 +222,10 @@
+ 				dialerString = " using outbound/" + outbound.Type() + "[" + outbound.Tag() + "]"
+ 			}
+ 			err = E.Cause(err, "open packet connection to ", remoteString, dialerString)
+-			m.deleteURLTestHistory(metadata.OutboundChain)
+-			notifyDialFailure(metadata.OutboundChain, N.NetworkUDP, err)
++			if ctx.Err() == nil {
++				m.urlTestHistory.DeleteURLTestHistoryIfCurrent(historyTag, sample)
++				notifyDialFailure(metadata.OutboundChain, N.NetworkUDP, err)
++			}
+ 			N.CloseOnHandshakeFailure(conn, onClose, err)
+ 			m.logger.ErrorContext(ctx, err)
+ 			return
+@@ -243,8 +249,10 @@
+ 				dialerString = " using outbound/" + outbound.Type() + "[" + outbound.Tag() + "]"
+ 			}
+ 			err = E.Cause(err, "listen packet connection using ", dialerString)
+-			m.deleteURLTestHistory(metadata.OutboundChain)
+-			notifyDialFailure(metadata.OutboundChain, N.NetworkUDP, err)
++			if ctx.Err() == nil {
++				m.urlTestHistory.DeleteURLTestHistoryIfCurrent(historyTag, sample)
++				notifyDialFailure(metadata.OutboundChain, N.NetworkUDP, err)
++			}
+ 			N.CloseOnHandshakeFailure(conn, onClose, err)
+ 			m.logger.ErrorContext(ctx, err)
+ 			return
+@@ -303,17 +311,19 @@
+ 	go m.packetConnectionCopy(ctx, destination, conn, true, &done, onClose)
+ }
+ 
+-func (m *ConnectionManager) deleteURLTestHistory(chain []adapter.Outbound) {
+-	if slices.ContainsFunc(chain, func(it adapter.Outbound) bool {
++func (m *ConnectionManager) urlTestSample(chain []adapter.Outbound) (string, *adapter.URLTestHistory) {
++	if m.urlTestHistory != nil && slices.ContainsFunc(chain, func(it adapter.Outbound) bool {
+ 		_, isURLTestGroup := it.(adapter.URLTestGroup)
+ 		return isURLTestGroup
+ 	}) {
+-		m.urlTestHistory.DeleteURLTestHistory(chain[len(chain)-1].Tag())
+-	}
++		tag := chain[len(chain)-1].Tag()
++		return tag, m.urlTestHistory.LoadURLTestHistory(tag)
++	}
++	return "", nil
+ }
+ 
+ func notifyDialFailure(chain []adapter.Outbound, network string, err error) {
+-	for i := 1; i < len(chain); i++ {
++	for i := len(chain) - 1; i > 0; i-- {
+ 		if listener, isListener := chain[i-1].(adapter.DialFailureListener); isListener {
+ 			listener.DialFailed(chain[i], network, err)
+ 		}
+--- a/protocol/group/selector.go
++++ b/protocol/group/selector.go
+@@ -160,16 +160,26 @@
+ }
+ 
+ func (s *Selector) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+-	conn, err := s.selected.Load().DialContext(ctx, network, destination)
++	member := s.selected.Load()
++	tag, sample := s.history.LoadDirectSample(member)
++	conn, err := member.DialContext(ctx, network, destination)
+ 	if err != nil {
++		if ctx.Err() == nil {
++			s.history.DeleteURLTestHistoryIfCurrent(tag, sample)
++		}
+ 		return nil, err
+ 	}
+ 	return s.interruptGroup.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
+ }
+ 
+ func (s *Selector) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+-	conn, err := s.selected.Load().ListenPacket(ctx, destination)
++	member := s.selected.Load()
++	tag, sample := s.history.LoadDirectSample(member)
++	conn, err := member.ListenPacket(ctx, destination)
+ 	if err != nil {
++		if ctx.Err() == nil {
++			s.history.DeleteURLTestHistoryIfCurrent(tag, sample)
++		}
+ 		return nil, err
+ 	}
+ 	return s.interruptGroup.NewPacketConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil

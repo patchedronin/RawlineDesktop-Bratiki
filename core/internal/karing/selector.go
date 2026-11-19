@@ -48,13 +48,16 @@ func New(ctx context.Context, router adapter.Router, logger log.ContextLogger, t
 	if !slices.Contains(options.Outbounds, options.Pinned) {
 		options.Pinned = ""
 	}
-	return &Selector{URLTest: inner.(*group.URLTest), ctx: ctx,
+	return &Selector{singURLTest: inner.(*group.URLTest), ctx: ctx,
 		manager: service.FromContext[adapter.OutboundManager](ctx), interval: interval,
 		pinned: options.Pinned, warm: options.Warm, interrupt: options.InterruptExistConnections, connections: interrupt.NewGroup()}, nil
 }
 
+// Use a distinct embedded field name so URLTest is promoted as a method.
+type singURLTest = group.URLTest
+
 type Selector struct {
-	*group.URLTest
+	*singURLTest
 	ctx         context.Context
 	manager     adapter.OutboundManager
 	interval    time.Duration
@@ -66,8 +69,14 @@ type Selector struct {
 }
 
 var _ group.AutoSelectorGroup = (*Selector)(nil)
+var _ adapter.URLTestGroup = (*Selector)(nil)
+var _ adapter.DialFailureListener = (*Selector)(nil)
 
 func (s *Selector) Type() string { return C.TypeAutoSelector }
+
+func (s *Selector) DialFailed(adapter.Outbound, string, error) {
+	s.PerformUpdateCheck()
+}
 
 func (s *Selector) Start(stage adapter.StartStage, scope *adapter.Scope) error {
 	if stage == adapter.StartStateStart {
@@ -81,7 +90,7 @@ func (s *Selector) Start(stage adapter.StartStage, scope *adapter.Scope) error {
 			}
 		}
 	}
-	if err := s.URLTest.Start(stage, scope); err != nil {
+	if err := s.singURLTest.Start(stage, scope); err != nil {
 		return err
 	}
 	if stage == adapter.StartStateStarted {
@@ -99,7 +108,7 @@ func (s *Selector) Selected(network string) adapter.Outbound {
 			return member
 		}
 	}
-	return s.URLTest.Selected(network)
+	return s.singURLTest.Selected(network)
 }
 
 func (s *Selector) SelectOutbound(tag string) bool {
@@ -122,12 +131,19 @@ func (s *Selector) DialContext(ctx context.Context, network string, destination 
 	s.mu.Unlock()
 	var conn net.Conn
 	var err error
-	if member := s.Selected(network); pinned != "" && member != nil && member.Tag() == pinned {
+	member := s.Selected(N.NetworkName(network))
+	if pinned != "" && member != nil && member.Tag() == pinned {
+		history := service.PtrFromContext[urltest.HistoryStorage](s.ctx)
+		tag, sample := history.LoadDirectSample(member)
 		conn, err = member.DialContext(ctx, network, destination)
+		if err != nil && ctx.Err() == nil {
+			history.DeleteURLTestHistoryIfCurrent(tag, sample)
+		}
 	} else {
-		conn, err = s.URLTest.DialContext(ctx, network, destination)
+		conn, err = s.singURLTest.DialContext(ctx, network, destination)
 	}
 	if err != nil {
+		s.PerformUpdateCheck()
 		return nil, err
 	}
 	return s.connections.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
@@ -139,19 +155,26 @@ func (s *Selector) ListenPacket(ctx context.Context, destination M.Socksaddr) (n
 	s.mu.Unlock()
 	var conn net.PacketConn
 	var err error
-	if member := s.Selected(N.NetworkUDP); pinned != "" && member != nil && member.Tag() == pinned {
+	member := s.Selected(N.NetworkUDP)
+	if pinned != "" && member != nil && member.Tag() == pinned {
+		history := service.PtrFromContext[urltest.HistoryStorage](s.ctx)
+		tag, sample := history.LoadDirectSample(member)
 		conn, err = member.ListenPacket(ctx, destination)
+		if err != nil && ctx.Err() == nil {
+			history.DeleteURLTestHistoryIfCurrent(tag, sample)
+		}
 	} else {
-		conn, err = s.URLTest.ListenPacket(ctx, destination)
+		conn, err = s.singURLTest.ListenPacket(ctx, destination)
 	}
 	if err != nil {
+		s.PerformUpdateCheck()
 		return nil, err
 	}
 	return s.connections.NewPacketConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
 }
 
 func (s *Selector) AttachConnection(closer io.Closer) func() {
-	remove := s.URLTest.AttachConnection(closer)
+	remove := s.singURLTest.AttachConnection(closer)
 	removePinned := s.connections.Add(closer, true)
 	return func() { removePinned(); remove() }
 }
@@ -160,7 +183,7 @@ func (s *Selector) References() []string {
 	s.mu.Lock()
 	pinned := s.pinned
 	s.mu.Unlock()
-	refs := s.URLTest.References()
+	refs := s.singURLTest.References()
 	if pinned != "" && !slices.Contains(refs, pinned) {
 		refs = append(refs, pinned)
 	}
@@ -182,8 +205,24 @@ func (s *Selector) Status() group.AutoSelectorStatus {
 	for rank, tag := range s.All() {
 		member := group.AutoSelectorMemberStatus{Tag: tag, Rank: rank, State: "untested", Selected: tag == status.Selected, SelectedUDP: tag == status.SelectedUDP, Active: true}
 		if history != nil {
-			if result := history.LoadURLTestHistory(tag); result != nil {
-				member.State = "healthy"
+			result := history.LoadURLTestHistory(tag)
+			if memberOutbound, ok := s.manager.Outbound(tag); ok {
+				if _, nested := memberOutbound.(adapter.OutboundGroup); nested {
+					result = nil
+					for _, network := range memberOutbound.Network() {
+						leaf := group.RealTag(memberOutbound, network)
+						if leaf == "" || leaf == tag {
+							continue
+						}
+						if latest := history.LoadURLTestHistory(leaf); latest != nil &&
+							(result == nil || latest.Time.After(result.Time)) {
+							result = latest
+						}
+					}
+				}
+			}
+			if result != nil {
+				member.State = "ok"
 				member.Qualified = true
 				member.Samples = 1
 				member.AverageMs = int(result.Delay)

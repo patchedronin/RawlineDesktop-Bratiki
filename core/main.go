@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -17,6 +18,7 @@ import (
 
 	"RawlineCore/internal/boxmain"
 	"RawlineCore/internal/capcheck"
+	"RawlineCore/internal/elevation"
 	"RawlineCore/internal/guard"
 	"RawlineCore/internal/ipc"
 	"RawlineCore/internal/parentcheck"
@@ -24,7 +26,6 @@ import (
 	"RawlineCore/internal/relay"
 	"RawlineCore/internal/rpc"
 	"RawlineCore/internal/sysdns"
-	"RawlineCore/internal/elevation"
 
 	C "github.com/sagernet/sing-box/constant"
 
@@ -190,6 +191,17 @@ func runAttached(attached elevation.Attached) {
 }
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "--validate-geo" {
+		parentcheck.CheckParentProcess()
+		if err := relay.DropPrivileges(); err != nil {
+			os.Exit(1)
+		}
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, providergeo.MaxFileSize+1))
+		if err != nil || !providergeo.ValidDatabase(os.Args[2], data) {
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "--xray-geo" {
 		parentcheck.CheckParentProcess()
 		if err := relay.DropPrivileges(); err != nil {

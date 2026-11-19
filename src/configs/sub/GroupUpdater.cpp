@@ -1,4 +1,5 @@
 #include "include/configs/sub/GroupUpdater.hpp"
+#include "include/configs/outbounds/qwdtt.h"
 #include "NkrVersion.h"
 
 #include "include/configs/generate.h"
@@ -668,8 +669,12 @@ namespace Subscription {
             // The tunnel mode is the user's choice, like the hashes and workers.
             if (type == "qwdtt" && old.contains("mode")) incoming["mode"] = old.value("mode");
             if (old.contains("turn_tcp")) incoming["turn_tcp"] = old.value("turn_tcp");
-            if (type == "qwdtt") for (const auto *key : {"raw_port", "direct_port", "custom_turn_ips", "obfs", "vk_anon_path", "captcha_mode", "go_dns"})
-                if (old.contains(key)) incoming[key] = old.value(key);
+            if (type == "qwdtt") {
+                for (const auto *key : {"obfs", "vk_anon_path", "captcha_mode", "go_dns"})
+                    if (old.contains(key)) incoming[key] = old.value(key);
+                for (const auto *key : {"raw_port", "direct_port", "custom_turn_ips"})
+                    if (!incoming.contains(key) && old.contains(key)) incoming[key] = old.value(key);
+            }
             if (type == "qwdtt" && incoming["diag_key"].toString().isEmpty() && old.contains("diag_key")) incoming["diag_key"] = old["diag_key"];
             if (type == "mrtt") {
                 for (const auto *key : {"srtp_mode", "turn_transport", "vk_anon_path", "captcha_mode", "fingerprint", "client_ids", "custom_turn_ips", "mtu", "jitsi_workers", "transport", "max_group"})
@@ -1416,7 +1421,14 @@ namespace Subscription {
         const bool keyed = countryRules || !cleared;
         parseSink.profile = [&](std::shared_ptr<Configs::Profile> ent) {
             if (ent->type == "qwdtt" || ent->type == "csqtt" || ent->type == "mrtt" || ent->type == "wdttplus") {
-                ent->outbound->ParseFromJson(PreserveRelaySettings(ent->type, ent->outbound->ExportToJson(), previousHashes));
+                auto incoming = ent->outbound->ExportToJson();
+                if (ent->type == "qwdtt") {
+                    const auto *qwdtt = static_cast<const Configs::qwdtt *>(ent->outbound.get());
+                    if (!qwdtt->rawPortProvided) incoming.remove("raw_port");
+                    if (!qwdtt->directPortProvided) incoming.remove("direct_port");
+                    if (!qwdtt->customTurnIpsProvided) incoming.remove("custom_turn_ips");
+                }
+                ent->outbound->ParseFromJson(PreserveRelaySettings(ent->type, incoming, previousHashes));
             }
             if (!filtering) {
                 sink.add(std::move(ent));

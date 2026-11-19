@@ -523,9 +523,7 @@ class ServerEditor : public QDialog {
         shareArea->layout()->addWidget(ShareBlocks::Qr(shareArea, "QR-код ссылки", link));
         if (server["kind"] == "qwdtt")
             shareArea->layout()->addWidget(ShareBlocks::Text(shareArea, "Ссылка WDTT (легаси)",
-                "wdtt://" + server["host"].toString() + ":" + server["peerPort"].toString() + ":" +
-                (server["wgPort"].toString().isEmpty() ? QStringLiteral("56001") : server["wgPort"].toString()) +
-                ":9000:" + server["password"].toString() + ":"));
+                ServerLinks::LegacyWdtt(server, server["password"].toString(), {})));
     }
     void setBusy(bool active) {
         busy = active;

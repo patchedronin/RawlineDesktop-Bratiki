@@ -62,10 +62,21 @@ namespace Configs {
 
     QStringList DnsRuleLines(const QString &text) {
         QStringList out;
-        static const QRegularExpression separators(QStringLiteral("[\\n,]"));
-        for (const auto &part : text.split(separators)) {
-            const auto line = part.trimmed();
-            if (!line.isEmpty() && !line.startsWith('#')) out << line;
+        static const QRegularExpression urlRule(QStringLiteral("\\s*rule-set:\\s*https?://"),
+                                                QRegularExpression::CaseInsensitiveOption);
+        for (const auto &line : text.split('\n')) {
+            qsizetype start = 0;
+            bool url = urlRule.match(line, 0,
+                QRegularExpression::NormalMatch, QRegularExpression::AnchorAtOffsetMatchOption).hasMatch();
+            for (qsizetype i = 0; i <= line.size(); ++i) {
+                if (i < line.size() && (line.at(i) != ',' ||
+                    (url && (i + 1 == line.size() || !line.at(i + 1).isSpace())))) continue;
+                const auto site = line.mid(start, i - start).trimmed();
+                if (!site.isEmpty() && !site.startsWith('#')) out << site;
+                start = i + 1;
+                if (start < line.size()) url = urlRule.match(line, start,
+                    QRegularExpression::NormalMatch, QRegularExpression::AnchorAtOffsetMatchOption).hasMatch();
+            }
         }
         return out;
     }
@@ -110,6 +121,9 @@ namespace Configs {
             QStringList{"custom-list", "https://example.org/sites.srs"}, "picker entries preserve catalog names and URLs");
         check(DnsRule{true, {"rule-set:custom-list"}, "1.1.1.1", false}.Problem().isEmpty(), "selected DNS rule sets validate");
         check(DnsRuleLines("a.com\n\n# note\nb.com, c.com") == QStringList{"a.com", "b.com", "c.com"}, "lines");
+        check(DnsRuleLines("rule-set:https://example.org/sites.srs?labels=a,full:b, full:local.test") ==
+            QStringList{"rule-set:https://example.org/sites.srs?labels=a,full:b", "full:local.test"},
+            "the editor preserves URL commas and the following exact-domain rule");
         const QList<DnsRule> rules{twitch, DnsRule{false, {"x.org"}, "1.1.1.1", true}};
         check(DecodeDnsRules(EncodeDnsRules(rules)) == rules, "round trip");
         for (const auto &bad : {QString(), QString("{"), QString("{\"a\":1}"), QString("[1,\"x\",null]")})

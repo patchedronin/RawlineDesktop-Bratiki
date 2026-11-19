@@ -47,6 +47,7 @@
 #include <QPainterPath>
 #include <QPointer>
 #include <QKeyEvent>
+#include <QFocusFrame>
 #include <QProxyStyle>
 #include <QStyleFactory>
 #include <QStyleOption>
@@ -1967,6 +1968,8 @@ void NewHome::buildBody(QVBoxLayout *body) {
     m_groupHeading->setCursor(Qt::PointingHandCursor);
     for (auto *widget : {m_groupHeading, static_cast<QWidget *>(m_groupName), static_cast<QWidget *>(m_groupDate)}) widget->installEventFilter(this);
     title->addWidget(m_groupHeading, 1);
+    m_groupHeading->setAccessibleName(T("Groups"));
+    (new QFocusFrame(m_groupHeading))->setWidget(m_groupHeading);
     m_subscriptionTitle = title;
     const auto action = [this, title](const QString &icon, const QString &tip, const std::function<void()> &callback) {
         auto *button = new NewTile(NewTile::Icon);
@@ -2787,6 +2790,7 @@ QSize NewHome::windowMinimum() {
     QSize size = m_columns->minimumSize() + QSize(outer.left() + outer.right(),
         outer.top() + outer.bottom() + m_titleBar->height());
     size.rwidth() += m_contentScroll->verticalScrollBar()->sizeHint().width();
+    size.setHeight(std::max(size.height(), 480));
     if (const auto *display = screen())
         size.setHeight(std::min(size.height(), display->availableGeometry().height() * 3 / 4));
     // The centering margins follow the window's width: counted in, the window could never narrow.
@@ -2834,6 +2838,7 @@ void NewHome::applyArrangement() {
     m_chipBox->layout()->setContentsMargins(0, 14, 0, 0);
     const bool hiddenChip = settings.new_layout_chip == QLatin1String("hidden");
     m_chipBox->setVisible(!hiddenChip);
+    m_groupHeading->setFocusPolicy(hiddenChip ? Qt::StrongFocus : Qt::NoFocus);
     if (hiddenChip) {
         m_chipBox->layout()->removeWidget(m_add);
         m_subscriptionTitle->insertWidget(m_subscriptionTitle->indexOf(m_refresh), m_add);
@@ -2950,6 +2955,14 @@ void NewHome::leaveEvent(QEvent *e) {
 }
 
 bool NewHome::eventFilter(QObject *watched, QEvent *event) {
+    if (m_groupHeading && watched == m_groupHeading && m_groupHeading->hasFocus() &&
+        event->type() == QEvent::KeyPress) {
+        const auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter || key->key() == Qt::Key_Space) {
+            if (!key->isAutoRepeat()) showGroupPicker();
+            return true;
+        }
+    }
     const bool subscription = watched == m_chip || watched == m_groupHeading || watched == m_groupName || watched == m_groupDate;
     if (subscription && (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseMove || event->type() == QEvent::MouseButtonRelease)) {
         auto *mouse = static_cast<QMouseEvent *>(event);
@@ -2995,10 +3008,14 @@ bool NewHome::eventFilter(QObject *watched, QEvent *event) {
 
 void MainWindow::applyInterfaceStyle(bool animated) {
     const bool wantNew = NewStyle::active();
+    const auto coverName = QStringLiteral("rawlineThemeTransition");
+    delete findChild<QLabel *>(coverName, Qt::FindDirectChildrenOnly);
     QLabel *cover = nullptr;
-    // A change of look: the old picture stays on top until the new one is ready, then fades.
-    if (animated && isVisible() && !isMinimized()) {
+    // A switch that changes the native frame must repaint directly after the window is recreated.
+    if (animated && wantNew && newHome && newHome->attached() && isVisible() && !isMinimized()) {
         cover = new QLabel(this);
+        cover->setObjectName(coverName);
+        cover->setAttribute(Qt::WA_TransparentForMouseEvents);
         cover->setPixmap(grab());
         cover->setGeometry(rect());
         cover->show();

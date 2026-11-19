@@ -18,6 +18,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QMenu>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QFontMetrics>
 #include "include/database/GroupsRepo.h"
@@ -192,7 +193,17 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 h->m_subscriptionTitle->indexOf(h->m_add) + 1 != h->m_subscriptionTitle->indexOf(h->m_refresh))
                 qFatal("Hidden subscription controls are not reachable");
         })};
-        s << std::pair{QStringLiteral("hidden-block-group-picker"), std::function<void()>([home] { home()->showGroupPicker(); })};
+        s << std::pair{QStringLiteral("hidden-block-group-picker"), std::function<void()>([home] {
+            auto *heading = home()->m_groupHeading;
+            if (!(heading->focusPolicy() & Qt::TabFocus))
+                qFatal("Hidden subscription heading cannot be reached by Tab");
+            heading->setFocus(Qt::TabFocusReason);
+            if (!heading->hasFocus()) qFatal("Hidden subscription heading could not take focus");
+            QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+            QApplication::sendEvent(heading, &enter);
+            if (!QApplication::activePopupWidget())
+                qFatal("Enter did not open the subscription picker");
+        })};
         s << std::pair{QStringLiteral("swapped-mode-switches"), std::function<void()>([home] {
             auto *h = home();
             Configs::dataManager->settingsRepo->new_layout_proxy = QStringLiteral("shown");

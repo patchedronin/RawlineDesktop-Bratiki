@@ -78,7 +78,7 @@ QString Qwdtt(const QJsonObject &server, const QString &name, const QString &pas
 
 QString LegacyWdtt(const QJsonObject &server, const QString &password, const QStringList &hashes) {
     const auto wg = server["wgPort"].toString().isEmpty() ? QStringLiteral("56001") : server["wgPort"].toString();
-    return "wdtt://" + server["host"].toString().trimmed() + ":" + server["peerPort"].toString() + ":" + wg + ":9000:" + password + ":" + hashes.join(',');
+    return "wdtt://" + server["host"].toString().trimmed() + ":" + server["peerPort"].toString() + ":" + wg + ":9000:" + QString::fromLatin1(QUrl::toPercentEncoding(password)) + ":" + hashes.join(',');
 }
 
 bool IsOwnerAccess(const QJsonObject &server, const QString &password) {
