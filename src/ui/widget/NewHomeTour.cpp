@@ -14,6 +14,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QEventLoop>
 #include <QFile>
 #include <QTextStream>
 #include <QMenu>
@@ -290,7 +291,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 });
             })};
         }
-        s << std::pair{QStringLiteral("theme-switch-regression"), std::function<void()>([theme, mw] {
+        s << std::pair{QStringLiteral("theme-switch-regression"), std::function<void()>([theme, mw, tour] {
             const auto check = [](bool ok, const char *message) { if (!ok) qFatal("Theme regression: %s", message); };
             check(!NewStyle::styleSheet().contains(QRegularExpression("%[0-9]+")), "unresolved palette placeholder");
             QDialog dialog(mw);
@@ -301,7 +302,9 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             dialog.show();
             QApplication::processEvents();
             check(dialog.testAttribute(Qt::WA_TranslucentBackground), "new dialog must have a translucent surface");
-            for (const auto &classic : QStyleFactory::keys()) {
+            const QStringList classicThemes = QStringList{"System", "QDarkStyle", "FlatGray", "LightBlue", "SoftPink", "BlackSoft"}
+                + QStyleFactory::keys();
+            for (const auto &classic : classicThemes) {
                 themeManager()->ApplyTheme(classic);
                 QApplication::processEvents();
                 check(child && dialog.windowFlags() == flags, "classic dialog flags or children changed");
@@ -312,6 +315,21 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 check(dialog.property("newFrame").toBool(), "existing dialog did not recover the new frame");
             }
             dialog.close();
+            const auto captionButtons = Qt::WindowTitleHint | Qt::WindowMinimizeButtonHint |
+                                        Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint;
+            for (const auto &classic : classicThemes) {
+                themeManager()->ApplyTheme(classic);
+                QEventLoop settle;
+                QTimer::singleShot(300, &settle, &QEventLoop::quit);
+                settle.exec();
+                const auto classicFlags = mw->windowFlags();
+                check(mw->isVisible() && !(classicFlags & Qt::FramelessWindowHint), "main window did not regain its system frame");
+                check((classicFlags & captionButtons) == captionButtons, "system title bar buttons are missing");
+                check(mw->mask().isEmpty(), "new theme corner mask survived the switch");
+                tour->shoot(QStringLiteral("theme-to-") + classic);
+                themeManager()->ApplyTheme(theme);
+                check(mw->windowFlags() & Qt::FramelessWindowHint, "main window did not recover the Rawline frame");
+            }
         })};
     }
     QTimer::singleShot(4000, qApp, [tour] { run(tour); });
