@@ -3131,17 +3131,27 @@ namespace Configs {
                 });
             }
 
-            // raw profiles bring their own rule_set definitions; merge them after ours.
-            if (routeChain->isRaw) {
-                for (const auto& rs : rawRouteObj.value("rule_set").toArray()) ruleSetArray.append(rs);
-            }
-
             const int defOut = routeChain->defaultOutboundID;
             const QString finalTag = routeChain->isRaw
                 ? (rawRouteObj.contains("final") ? rawRouteObj.value("final").toString() : QString(tags::proxy))
                 : defOut == blockID       ? QString(tags::direct)
                 : defOut == warpBypassID  ? QString(settings.enable_warp ? tags::warpBypass : tags::proxy)
                                           : outboundIDToString(defOut);
+
+            // The router loads uncached sets before the MASQUE endpoint starts.
+            if (settings.enable_warp && settings.warp_mode == "masque" && finalTag == tags::proxy &&
+                !rawRouteObj.contains("default_http_client")) {
+                for (qsizetype i = 0; i < ruleSetArray.size(); ++i) {
+                    auto ruleSet = ruleSetArray.at(i).toObject();
+                    if (ruleSet["type"] != "remote") continue;
+                    ruleSet["http_client"] = QJsonObject{{"detour", tags::warpBypass}};
+                    ruleSetArray[i] = ruleSet;
+                }
+            }
+            // Raw profiles bring their own rule set definitions; preserve their HTTP clients.
+            if (routeChain->isRaw) {
+                for (const auto& rs : rawRouteObj.value("rule_set").toArray()) ruleSetArray.append(rs);
+            }
 
             // An endpoint rule the user positioned already emitted this tag's gate.
             auto carriesGate = [](const QJsonArray &rules, const QString &tag) {

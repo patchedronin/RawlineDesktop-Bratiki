@@ -126,15 +126,16 @@ int TestQwdttImport() {
     }
     const auto checkWarp = [&](const std::shared_ptr<Configs::Profile> &profile, bool tcpOnly) {
         auto &s = *Configs::dataManager->settingsRepo;
-        const auto saved = std::tuple{s.enable_warp, s.warp_mode, s.warp_masque_http_mode,
+        const auto saved = std::tuple{s.enable_warp, s.adblock_enable, s.warp_mode, s.warp_masque_http_mode,
             s.warp_private_key, s.warp_public_key, s.warp_ep, s.warp_ifc_addrs,
             s.warp_masque_private_key, s.warp_masque_peer_public_key, s.warp_masque_ep, s.warp_masque_ifc_addrs};
         const auto restore = qScopeGuard([&s, saved] {
-            std::tie(s.enable_warp, s.warp_mode, s.warp_masque_http_mode,
+            std::tie(s.enable_warp, s.adblock_enable, s.warp_mode, s.warp_masque_http_mode,
                 s.warp_private_key, s.warp_public_key, s.warp_ep, s.warp_ifc_addrs,
                 s.warp_masque_private_key, s.warp_masque_peer_public_key, s.warp_masque_ep, s.warp_masque_ifc_addrs) = saved;
         });
         s.enable_warp = true;
+        s.adblock_enable = true;
         s.warp_private_key = "private"; s.warp_public_key = "public"; s.warp_ep = "192.0.2.200:2408"; s.warp_ifc_addrs = {"172.16.0.2/32"};
         s.warp_masque_private_key = "private"; s.warp_masque_peer_public_key = "public"; s.warp_masque_ep = "192.0.2.200:443"; s.warp_masque_ifc_addrs = {"172.16.0.2/32"};
         for (const auto *mode : {"wireguard", "masque"}) for (int version : {0, 1, 2}) {
@@ -147,6 +148,15 @@ int TestQwdttImport() {
             }
             check(built->error.isEmpty(), "native WARP chain builds");
             if (!built->error.isEmpty()) continue;
+            const auto route = built->coreConfig["route"].toObject();
+            QJsonObject remote;
+            for (const auto &item : route["rule_set"].toArray()) {
+                if (item.toObject()["tag"] == "rawline-adblocksingbox") remote = item.toObject();
+            }
+            check(route["final"] == "proxy" && remote["type"] == "remote" &&
+                remote["http_client"].toObject()["detour"].toString() ==
+                    (s.warp_mode == "masque" ? QStringLiteral("warp-bypass") : QString()),
+                "cold MASQUE rule-set downloads use its upstream without changing the traffic route");
             QJsonObject warp, bridge;
             for (const auto &item : built->coreConfig["endpoints"].toArray()) if (item.toObject()["tag"] == "proxy") warp = item.toObject();
             for (const auto &item : built->coreConfig["outbounds"].toArray()) if (item.toObject()["tag"] == "warp-bypass") bridge = item.toObject();
