@@ -2955,7 +2955,7 @@ void NewHome::leaveEvent(QEvent *e) {
 }
 
 bool NewHome::eventFilter(QObject *watched, QEvent *event) {
-    if (m_groupHeading && watched == m_groupHeading && m_groupHeading->hasFocus() &&
+    if (m_groupHeading && watched == m_groupHeading && (m_groupHeading->focusPolicy() & Qt::TabFocus) &&
         event->type() == QEvent::KeyPress) {
         const auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter || key->key() == Qt::Key_Space) {

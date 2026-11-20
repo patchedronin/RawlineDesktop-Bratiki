@@ -535,9 +535,14 @@ jobs:
           $app = "$env:RUNNER_TEMP/ui-tour-app"
           Copy-Item -Recurse "$env:DEST" $app
           $shots = "$env:RUNNER_TEMP/ui-tour"
-          $process = Start-Process -FilePath "$app/Rawline.exe" -ArgumentList "--ui-tour=$shots" -PassThru
+          $env:QT_FORCE_STDERR_LOGGING = '1'
+          $tourLog = "$env:RUNNER_TEMP/ui-tour-stderr.txt"
+          $process = Start-Process -FilePath "$app/Rawline.exe" -ArgumentList "--ui-tour=$shots" -PassThru -RedirectStandardError $tourLog
           if (-not $process.WaitForExit(900000)) { $process.Kill(); throw "The interface tour did not finish" }
-          if ($process.ExitCode -ne 0) { throw "The interface tour failed with exit code $($process.ExitCode)" }
+          if ($process.ExitCode -ne 0) {
+            Get-Content $tourLog -Tail 25
+            throw "The interface tour failed with exit code $($process.ExitCode)"
+          }
           $count = (Get-ChildItem $shots -Filter *.png).Count
           if ($count -lt 30) { throw "The interface tour saved only $count screens" }
       - name: Upload the interface tour
