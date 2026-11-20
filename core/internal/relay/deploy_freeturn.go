@@ -18,9 +18,9 @@ import (
 
 // FreeTurn's own installer, pinned to the release of the client Rawline carries: it answers in JSON and sets up the server.
 const (
-	freeturnVersion   = "v4.1.2"
-	freeturnInstaller = "https://github.com/hackdiaz-dev/free-turn-proxy/releases/download/v4.1.2/install.sh"
-	freeturnSHA256    = "91fcea2aa5558d019431da31aa1f32baa0ffb943600529810e073ffa22f83100"
+	freeturnVersion   = "v4.2.1"
+	freeturnInstaller = "https://github.com/hackdiaz-dev/free-turn-proxy/releases/download/" + freeturnVersion + "/install.sh"
+	freeturnSHA256    = "e17725c29237d344c1607d1391c91d977521834508640dc158f9b21c06414916"
 	freeturnScript    = "/opt/free-turn-proxy/install-rawline.sh"
 )
 

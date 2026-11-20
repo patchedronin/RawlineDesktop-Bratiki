@@ -3,7 +3,7 @@
 set -euo pipefail
 suffix=$([[ "$GOOS" == windows ]] && echo '.exe' || true)
 
-freeturn_revision=6d857e1e847a38fdee3e150314fb37009e3c37a6
+freeturn_revision=11f81346cb398b157975107872aad5d6a4143149
 gvisor_version=v0.0.0-20260906120324-45bde0d1defa
 if [ ! -d freeturn-source/.git ]; then
     python3 script/fetch_pinned_source.py https://github.com/hackdiaz-dev/free-turn-proxy.git "$freeturn_revision" freeturn-source
