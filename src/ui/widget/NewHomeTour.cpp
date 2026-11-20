@@ -191,15 +191,25 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 h->m_subscriptionTitle->indexOf(h->m_add) + 1 != h->m_subscriptionTitle->indexOf(h->m_refresh))
                 qFatal("Hidden subscription controls are not reachable");
         })};
-        s << std::pair{QStringLiteral("hidden-block-group-picker"), std::function<void()>([home] {
-            auto *heading = home()->m_groupHeading;
-            if (!(heading->focusPolicy() & Qt::TabFocus))
-                qFatal("Hidden subscription heading cannot be reached by Tab");
-            // Send the key to the Tab target without depending on the runner's foreground window.
+        s << std::pair{QStringLiteral("hidden-block-group-picker"), std::function<void()>([home, errorPath = tour->dir.filePath(QStringLiteral("keyboard-picker-error.txt"))] {
+            auto *h = home();
+            auto *heading = h->m_groupHeading;
+            const auto require = [&errorPath](bool passed, const char *message) {
+                if (passed) return;
+                QFile file(errorPath);
+                if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                    file.write(message);
+                    file.close();
+                }
+                qFatal("%s", message);
+            };
+            require(heading->focusPolicy() & Qt::TabFocus, "Hidden subscription heading cannot be reached by Tab");
+            // Exercise the heading's handler independently of application shortcuts and runner window activation.
             QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
-            QApplication::sendEvent(heading, &enter);
-            if (!QApplication::activePopupWidget())
-                qFatal("Enter did not open the subscription picker");
+            require(h->eventFilter(heading, &enter), "The subscription heading did not handle Enter");
+            const auto pickers = h->findChildren<QWidget *>(QStringLiteral("newHomeGroupPicker"));
+            require(std::any_of(pickers.cbegin(), pickers.cend(), [](const QWidget *picker) { return picker->isVisible(); }),
+                    "Enter did not show the subscription picker");
         })};
         s << std::pair{QStringLiteral("fixed-mode-switches"), std::function<void()>([home] {
             auto *h = home();

@@ -2353,6 +2353,7 @@ void NewHome::checkCurrentConnection() {
 
 void NewHome::showGroupPicker() {
     auto *popup = new GlassPopup(this);
+    popup->setObjectName(QStringLiteral("newHomeGroupPicker"));
     auto *layout = new QVBoxLayout(popup);
     layout->setContentsMargins(16, 16, 16, 16);
     layout->setSpacing(12);
