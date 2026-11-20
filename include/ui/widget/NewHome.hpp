@@ -7,6 +7,8 @@
 #include <QElapsedTimer>
 #include <QListView>
 #include <QPalette>
+#include <QPersistentModelIndex>
+#include <QPixmap>
 #include <QStyledItemDelegate>
 #include <QWidget>
 #include <functional>
@@ -196,22 +198,38 @@ public:
 
 class NewProfileList : public QListView {
 public:
-    explicit NewProfileList(QWidget *parent = nullptr);
+    explicit NewProfileList(QWidget *backdrop);
+    void queueActivation(const QModelIndex &index);
     NewProfileDelegate *rowDelegate = nullptr;
     std::function<void(const QModelIndex &)> editRequested;
+    std::function<void(const QModelIndex &)> activateRequested;
     std::function<void(int from, int to)> rowsSwapped;
     std::function<int(int)> toSourceRow;
     QString emptyText;
 
 protected:
     void mousePressEvent(QMouseEvent *) override;
+    void mouseDoubleClickEvent(QMouseEvent *) override;
+    void mouseReleaseEvent(QMouseEvent *) override;
     void mouseMoveEvent(QMouseEvent *) override;
     void leaveEvent(QEvent *) override;
     void paintEvent(QPaintEvent *) override;
     void dropEvent(QDropEvent *) override;
     void wheelEvent(QWheelEvent *) override;
+    void scrollContentsBy(int dx, int dy) override;
 
 private:
+    QModelIndex tileAt(const QPointF &position) const;
+    void paintEdgeFades(QPainter &p);
+
+    QWidget *m_backdrop;
+    QRect m_fadeBounds;
+    QSize m_fadeBackdropSize;
+    QColor m_fadeGround;
+    QPixmap m_fades[2];
+    QTimer *m_activation = nullptr;
+    QPersistentModelIndex m_pendingActivation;
+    bool m_skipRelease = false;
     QTimer *m_spinner = nullptr;
     QElapsedTimer m_spinClock;
     QVariantAnimation *m_scroll = nullptr;

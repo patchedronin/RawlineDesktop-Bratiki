@@ -65,6 +65,7 @@
 #include <QWheelEvent>
 #include <QVBoxLayout>
 #include <QWindow>
+#include <QtMath>
 
 #include <algorithm>
 #include <cmath>
@@ -1652,7 +1653,13 @@ void NewProfileDelegate::paint(QPainter *p, const QStyleOptionViewItem &option, 
     p->restore();
 }
 
-NewProfileList::NewProfileList(QWidget *parent) : QListView(parent) {
+NewProfileList::NewProfileList(QWidget *backdrop) : QListView(backdrop), m_backdrop(backdrop) {
+    m_activation = new QTimer(this);
+    m_activation->setSingleShot(true);
+    m_activation->setTimerType(Qt::PreciseTimer);
+    connect(m_activation, &QTimer::timeout, this, [this] {
+        if (isVisible() && m_pendingActivation.isValid() && activateRequested) activateRequested(m_pendingActivation);
+    });
     rowDelegate = new NewProfileDelegate(this);
     setItemDelegate(rowDelegate);
     setFrameShape(QFrame::NoFrame);
@@ -1690,26 +1697,62 @@ NewProfileList::NewProfileList(QWidget *parent) : QListView(parent) {
         }
         m_spinner->setInterval(250);
     });
+    connect(verticalScrollBar(), &QScrollBar::rangeChanged, viewport(), qOverload<>(&QWidget::update));
     m_spinner->start(250);
 }
 
+QModelIndex NewProfileList::tileAt(const QPointF &position) const {
+    const auto index = indexAt(position.toPoint());
+    if (!index.isValid()) return {};
+    QPainterPath tile;
+    tile.addRoundedRect(QRectF(visualRect(index)).adjusted(5, 0, -5, -3), 20, 20);
+    return tile.contains(position) ? index : QModelIndex{};
+}
+
+void NewProfileList::queueActivation(const QModelIndex &index) {
+    m_pendingActivation = index;
+    m_activation->start(QApplication::doubleClickInterval());
+}
+
 void NewProfileList::mousePressEvent(QMouseEvent *e) {
-    const QModelIndex index = indexAt(e->pos());
+    m_skipRelease = false;
     if (e->button() == Qt::LeftButton) {
-        QPainterPath tile;
-        if (index.isValid()) tile.addRoundedRect(QRectF(visualRect(index)).adjusted(5, 0, -5, -3), 20, 20);
-        if (!tile.contains(e->position())) {
-            if (auto *selection = selectionModel()) selection->clear();
+        const auto index = tileAt(e->position());
+        if (!index.isValid() || NewProfileDelegate::chevronRect(visualRect(index)).contains(e->pos())) {
+            m_activation->stop();
+            m_skipRelease = true;
+            if (index.isValid()) {
+                if (editRequested) editRequested(index);
+            } else if (auto *selection = selectionModel()) {
+                selection->clear();
+            }
             e->accept();
             return;
         }
     }
-    if (e->button() == Qt::LeftButton && index.isValid() && NewProfileDelegate::chevronRect(visualRect(index)).contains(e->pos())) {
-        if (editRequested) editRequested(index);
+    QListView::mousePressEvent(e);
+}
+
+void NewProfileList::mouseDoubleClickEvent(QMouseEvent *e) {
+    if (e->button() != Qt::LeftButton || (e->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier))) {
+        QListView::mouseDoubleClickEvent(e);
+        return;
+    }
+    const auto index = tileAt(e->position());
+    if (!index.isValid()) return;
+    m_activation->stop();
+    m_skipRelease = true;
+    e->accept();
+    if (editRequested) editRequested(index);
+}
+
+void NewProfileList::mouseReleaseEvent(QMouseEvent *e) {
+    if (e->button() == Qt::LeftButton && m_skipRelease) {
+        m_skipRelease = false;
         e->accept();
         return;
     }
-    QListView::mousePressEvent(e);
+    QListView::mouseReleaseEvent(e);
 }
 
 void NewProfileList::mouseMoveEvent(QMouseEvent *e) {
@@ -1730,7 +1773,58 @@ void NewProfileList::paintEvent(QPaintEvent *e) {
         p.setFont(NewStyle::font(14));
         p.setPen(NewStyle::muted());
         p.drawText(viewport()->rect().adjusted(24, 0, -24, -80), Qt::AlignCenter | Qt::TextWordWrap, emptyText);
+        return;
     }
+    QPainter p(viewport());
+    paintEdgeFades(p);
+}
+
+void NewProfileList::scrollContentsBy(int dx, int dy) {
+    QListView::scrollContentsBy(dx, dy);
+    const auto r = viewport()->rect();
+    // Repaint the two fades and their old positions after Qt scrolls the backing store.
+    const int depth = std::min(r.height(), 22 + qAbs(dy));
+    viewport()->update(0, 0, r.width(), depth);
+    viewport()->update(0, r.height() - depth, r.width(), depth);
+}
+
+void NewProfileList::paintEdgeFades(QPainter &p) {
+    const auto *bar = verticalScrollBar();
+    const bool top = bar->value() > bar->minimum();
+    const bool bottom = bar->value() < bar->maximum();
+    const int depth = std::min(22, viewport()->height() / 2);
+    if ((!top && !bottom) || depth == 0 || viewport()->width() == 0) return;
+    const QRect bounds(viewport()->mapTo(m_backdrop, QPoint()), viewport()->size());
+    const auto ground = NewStyle::background();
+    const qreal dpr = viewport()->devicePixelRatioF();
+    if (m_fadeBounds != bounds || m_fadeBackdropSize != m_backdrop->size() ||
+        m_fadeGround != ground || m_fades[0].devicePixelRatio() != dpr || m_fades[0].isNull()) {
+        m_fadeBounds = bounds;
+        m_fadeBackdropSize = m_backdrop->size();
+        m_fadeGround = ground;
+        // Keep only two small copies of the backdrop, with the same gradient as the window behind them.
+        for (int edge = 0; edge < 2; ++edge) {
+            const int y = edge == 0 ? 0 : bounds.height() - depth;
+            QPixmap strip(qCeil(bounds.width() * dpr), qCeil(depth * dpr));
+            strip.setDevicePixelRatio(dpr);
+            strip.fill(Qt::transparent);
+            {
+                QPainter mask(&strip);
+                mask.save();
+                mask.translate(-bounds.topLeft() - QPoint(0, y));
+                NewStyle::paintBackdrop(mask, m_backdrop->rect());
+                mask.restore();
+                QLinearGradient opacity(0, edge == 0 ? 0 : depth, 0, edge == 0 ? depth : 0);
+                opacity.setColorAt(0, QColor(0, 0, 0, 245));
+                opacity.setColorAt(1, Qt::transparent);
+                mask.setCompositionMode(QPainter::CompositionMode_DestinationIn);
+                mask.fillRect(QRectF(0, 0, strip.width() / dpr, strip.height() / dpr), opacity);
+            }
+            m_fades[edge] = std::move(strip);
+        }
+    }
+    if (top) p.drawPixmap(QPoint(0, 0), m_fades[0]);
+    if (bottom) p.drawPixmap(QPoint(0, bounds.height() - depth), m_fades[1]);
 }
 
 void NewProfileList::wheelEvent(QWheelEvent *event) {
@@ -2119,7 +2213,7 @@ void NewHome::buildBody(QVBoxLayout *body) {
     searchBox->addWidget(m_search);
     serversLayout->addLayout(searchBox);
 
-    m_list = new NewProfileList;
+    m_list = new NewProfileList(this);
     m_list->setModel(mw->profilesFilterModel);
     m_list->setModelColumn(ProfilesTableModel::ColName);
     // One selection for both views: every menu acts on the servers chosen here.
@@ -2127,14 +2221,14 @@ void NewHome::buildBody(QVBoxLayout *body) {
     m_list->rowsSwapped = [this](int from, int to) { if (mw->ui->profilesTableView->rowsSwapped) mw->ui->profilesTableView->rowsSwapped(from, to); };
     m_list->toSourceRow = [this](int row) { return mw->profilesFilterModel->toSourceRow(row); };
     m_list->editRequested = [this](const QModelIndex &index) { mw->on_profilesTableView_doubleClicked(index); };
-    // One click starts a server, as on the phone; with a modifier it only chooses rows.
+    m_list->activateRequested = [this](const QModelIndex &index) {
+        const int id = index.data(ProfilesTableModel::ProfileIdRole).toInt();
+        if (!mw->select_mode && id != m_list->rowDelegate->runningId) mw->profile_start(id);
+    };
     connect(m_list, &QListView::clicked, this, [this](const QModelIndex &index) {
         if (QGuiApplication::keyboardModifiers() & (Qt::ControlModifier | Qt::ShiftModifier)) return;
-        // The chevron's press never reached the view, so its release may report an older press.
-        if (NewProfileDelegate::chevronRect(m_list->visualRect(index)).contains(m_list->viewport()->mapFromGlobal(QCursor::pos()))) return;
         if (mw->select_mode) { mw->on_profilesTableView_doubleClicked(index); return; }
-        const int id = index.data(ProfilesTableModel::ProfileIdRole).toInt();
-        if (id != m_list->rowDelegate->runningId) mw->profile_start(id);
+        m_list->queueActivation(index);
     });
     connect(m_list, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
         mw->ui->menu_server->popup(m_list->viewport()->mapToGlobal(pos));

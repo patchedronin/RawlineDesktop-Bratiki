@@ -4,6 +4,7 @@
 
 #include "include/ui/mainwindow.h"
 #include "include/ui/profile/dialog_edit_profile.h"
+#include "include/ui/utils/ProfilesTableModel.h"
 #include "include/ui/setting/ThemeManager.hpp"
 #include "include/configs/sub/GroupUpdater.hpp"
 #include "include/database/SettingsRepo.h"
@@ -27,6 +28,7 @@
 #include <QStyleFactory>
 #include <QRegularExpression>
 #include <QScreen>
+#include <QScrollBar>
 #include <QTabWidget>
 #include <QTimer>
 
@@ -287,8 +289,43 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                  std::pair{"about", mw->ui->actionAbout}, std::pair{"find-settings", mw->ui->menu_find_settings}}) {
             s << std::pair{QString::fromLatin1(name), std::function<void()>(action(a))};
         }
+        s << std::pair{QStringLiteral("profile-edge-fades"), std::function<void()>([home] {
+            auto *list = home()->m_list;
+            list->setFixedHeight(145);
+            QApplication::processEvents();
+            auto *bar = list->verticalScrollBar();
+            if (bar->maximum() <= bar->minimum()) qFatal("Profile fade test has no scrollable rows");
+            bar->setValue((bar->minimum() + bar->maximum()) / 2);
+        })};
         s << std::pair{QStringLiteral("edit-profile"), std::function<void()>([home, mw] {
-            if (auto *h = home(); h->m_list->model() && h->m_list->model()->rowCount() > 0) mw->on_profilesTableView_doubleClicked(h->m_list->model()->index(0, 0));
+            auto *list = home()->m_list;
+            list->setMinimumHeight(0);
+            list->setMaximumHeight(QWIDGETSIZE_MAX);
+            list->scrollToTop();
+            QApplication::processEvents();
+            const auto index = list->model()->index(0, ProfilesTableModel::ColName);
+            if (!index.isValid()) qFatal("Profile double-click test has no profile");
+            const QPointF pos = list->visualRect(index).center();
+            const QPointF global = list->viewport()->mapToGlobal(pos.toPoint());
+            const auto send = [&](QEvent::Type type, Qt::MouseButtons buttons) {
+                QMouseEvent event(type, pos, global, Qt::LeftButton, buttons, Qt::NoModifier);
+                QApplication::sendEvent(list->viewport(), &event);
+            };
+            const auto originalActivation = list->activateRequested;
+            int activations = 0;
+            list->activateRequested = [&](const QModelIndex &) { ++activations; };
+            send(QEvent::MouseButtonPress, Qt::LeftButton);
+            send(QEvent::MouseButtonRelease, Qt::NoButton);
+            send(QEvent::MouseButtonDblClick, Qt::LeftButton);
+            send(QEvent::MouseButtonRelease, Qt::NoButton);
+            QEventLoop settle;
+            QTimer::singleShot(QApplication::doubleClickInterval() + 50, &settle, &QEventLoop::quit);
+            settle.exec();
+            list->activateRequested = originalActivation;
+            if (activations != 0) qFatal("Double-click started the profile");
+            const auto dialogs = mw->findChildren<DialogEditProfile *>();
+            if (std::count_if(dialogs.cbegin(), dialogs.cend(), [](const auto *dialog) { return dialog->isVisible(); }) != 1)
+                qFatal("Double-click did not open exactly one profile editor");
         })};
         s << std::pair{QStringLiteral("edit-freeturn"), std::function<void()>([mw] {
             auto *editor = new DialogEditProfile("freeturn", Configs::dataManager->settingsRepo->current_group, mw);
