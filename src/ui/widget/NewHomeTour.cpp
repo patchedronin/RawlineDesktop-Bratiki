@@ -185,11 +185,9 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             auto *h = home();
             auto &settings = *Configs::dataManager->settingsRepo;
             settings.new_layout_chip = QStringLiteral("hidden");
-            settings.new_layout_proxy = QStringLiteral("hidden");
-            settings.new_layout_switch_order = QStringLiteral("proxy");
             h->applyArrangement();
             QApplication::processEvents();
-            if (h->m_chipBox->isVisible() || h->m_proxy->isVisible() || !h->m_add->isVisible() ||
+            if (h->m_chipBox->isVisible() || !h->m_add->isVisible() ||
                 h->m_subscriptionTitle->indexOf(h->m_add) + 1 != h->m_subscriptionTitle->indexOf(h->m_refresh))
                 qFatal("Hidden subscription controls are not reachable");
         })};
@@ -203,18 +201,16 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             if (!QApplication::activePopupWidget())
                 qFatal("Enter did not open the subscription picker");
         })};
-        s << std::pair{QStringLiteral("swapped-mode-switches"), std::function<void()>([home] {
+        s << std::pair{QStringLiteral("fixed-mode-switches"), std::function<void()>([home] {
             auto *h = home();
-            Configs::dataManager->settingsRepo->new_layout_proxy = QStringLiteral("shown");
             h->applyArrangement();
-            if (h->m_switches->indexOf(h->m_proxy) != 0 || h->m_switches->indexOf(h->m_tun) != 1)
-                qFatal("Mode switches did not exchange places");
+            if (!h->m_tun->isVisible() || !h->m_proxy->isVisible() ||
+                h->m_switches->indexOf(h->m_tun) != 0 || h->m_switches->indexOf(h->m_proxy) != 1)
+                qFatal("Both mode switches must stay visible in their fixed order");
         })};
         s << std::pair{QString(), std::function<void()>([home] {
             auto &settings = *Configs::dataManager->settingsRepo;
             settings.new_layout_chip = QStringLiteral("top");
-            settings.new_layout_proxy = QStringLiteral("shown");
-            settings.new_layout_switch_order = QStringLiteral("tun");
             home()->applyArrangement();
         })};
         s << std::pair{QStringLiteral("more-menu"), std::function<void()>([home] { home()->showMoreMenu(); })};

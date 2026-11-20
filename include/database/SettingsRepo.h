@@ -383,8 +383,6 @@ namespace Configs {
         // them in one narrow column as on the phone. The card and controls keys are kept from earlier arranging only.
         QString new_layout_panel = "left";
         QString new_layout_chip = "top";
-        QString new_layout_switch_order = "tun";
-        QString new_layout_proxy = "shown";
         QString new_layout_controls = "top";
         // A smaller connect button ("compact") and the arranging tutorial seen ("seen").
         QString new_layout_size = "normal";

@@ -2846,11 +2846,6 @@ void NewHome::applyArrangement() {
         m_subscriptionTitle->removeWidget(m_add);
         qobject_cast<QHBoxLayout *>(m_chipBox->layout())->addWidget(m_add);
     }
-    m_switches->removeWidget(m_tun);
-    m_switches->removeWidget(m_proxy);
-    m_switches->addWidget(settings.new_layout_switch_order == QLatin1String("proxy") ? m_proxy : m_tun);
-    m_switches->addWidget(settings.new_layout_switch_order == QLatin1String("proxy") ? m_tun : m_proxy);
-    m_proxy->setVisible(settings.new_layout_proxy != QLatin1String("hidden"));
     m_add->show();
     m_orb->setFixedHeight(settings.new_layout_size == QLatin1String("compact") ? 148 : 190);
     // The window's smallest size follows the arrangement.
@@ -2874,20 +2869,11 @@ void NewHome::setArranging(bool on) {
         const QString place = at.x() < width() / 3 ? QStringLiteral("left") : at.x() > width() * 2 / 3 ? QStringLiteral("right") : QStringLiteral("center");
         if (settings.new_layout_panel != place) set(settings.new_layout_panel, place);
     });
-    const auto swapSwitches = [=, &settings](NewSwitch *target, QPoint at) {
-        if (target->isVisible() && QRect(target->mapTo(this, QPoint()), target->size()).contains(at))
-            set(settings.new_layout_switch_order, settings.new_layout_switch_order == QLatin1String("proxy") ? QStringLiteral("tun") : QStringLiteral("proxy"));
-    };
-    overlay->addBlock(m_tun, [=](QPoint at) { swapSwitches(m_proxy, at); });
-    overlay->addBlock(m_proxy, [=](QPoint at) { swapSwitches(m_tun, at); });
     overlay->rebuild = [=, &settings] {
         overlay->clearButtons();
         const bool hiddenChip = settings.new_layout_chip == QLatin1String("hidden");
         overlay->addButton(hiddenChip ? m_groupHeading : m_chipBox, hiddenChip ? QStringLiteral("+") : QStringLiteral("×"), hiddenChip ? T("Restore") : T("Hide"),
                            [=, &settings] { set(settings.new_layout_chip, hiddenChip ? QStringLiteral("top") : QStringLiteral("hidden")); });
-        const bool hiddenProxy = settings.new_layout_proxy == QLatin1String("hidden");
-        overlay->addButton(hiddenProxy ? static_cast<QWidget *>(m_tun) : m_proxy, hiddenProxy ? QStringLiteral("+") : QStringLiteral("×"), hiddenProxy ? T("Restore") : T("Hide"),
-                           [=, &settings] { set(settings.new_layout_proxy, hiddenProxy ? QStringLiteral("shown") : QStringLiteral("hidden")); });
         const bool compact = settings.new_layout_size == QLatin1String("compact");
         overlay->addButton(m_orb, compact ? QStringLiteral("⤢") : QStringLiteral("⤡"), T("Change size"),
                            [=, &settings] { set(settings.new_layout_size, compact ? QStringLiteral("normal") : QStringLiteral("compact")); });

@@ -201,8 +201,6 @@ namespace Configs {
             {"relay_device_id", &relay_device_id},
             {"new_layout_panel", &new_layout_panel},
             {"new_layout_chip", &new_layout_chip},
-            {"new_layout_switch_order", &new_layout_switch_order},
-            {"new_layout_proxy", &new_layout_proxy},
             {"new_layout_controls", &new_layout_controls},
             {"new_layout_size", &new_layout_size},
             {"new_layout_tutorial", &new_layout_tutorial},
