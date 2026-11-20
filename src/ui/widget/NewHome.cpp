@@ -584,7 +584,9 @@ void NewStyle::themeFrame(QWidget *window) {
 }
 
 bool NewStyle::isTheme(const QString &theme) {
-    return theme == QLatin1String(OledTheme) || theme == QLatin1String(WhiteTheme) || theme == QLatin1String(PastelTheme);
+    return theme == QLatin1String(OledTheme) || theme == QLatin1String(WhiteTheme) ||
+           theme == QLatin1String(PastelTheme) || theme == QLatin1String(PastelLightTheme) ||
+           theme == QLatin1String(GreyTheme);
 }
 
 void NewStyle::setTheme(const QString &theme) {
@@ -637,13 +639,31 @@ void NewStyle::setTheme(const QString &theme) {
 }
 
 bool NewStyle::active() { return isTheme(g_theme); }
-bool NewStyle::light() { return g_theme == QLatin1String(WhiteTheme); }
-bool NewStyle::pastel() { return g_theme == QLatin1String(PastelTheme); }
+bool NewStyle::light() { return g_theme == QLatin1String(WhiteTheme) || g_theme == QLatin1String(PastelLightTheme); }
+bool NewStyle::pastel() { return g_theme == QLatin1String(PastelTheme) || g_theme == QLatin1String(PastelLightTheme); }
 
-QColor NewStyle::background() { return pastel() ? QColor(22, 20, 31) : light() ? QColor(255, 255, 255) : QColor(0, 0, 0); }
-QColor NewStyle::text() { return pastel() ? QColor(244, 242, 250) : light() ? QColor(10, 10, 11) : QColor(245, 245, 247); }
-QColor NewStyle::muted() { return pastel() ? QColor(176, 170, 198) : light() ? QColor(105, 105, 112) : QColor(142, 142, 150); }
-QColor NewStyle::solid() { return pastel() ? QColor(36, 31, 51) : light() ? QColor(243, 243, 246) : QColor(21, 21, 24); }
+static bool greyPalette() { return g_theme == QLatin1String(NewStyle::GreyTheme); }
+
+QColor NewStyle::background() {
+    if (greyPalette()) return QColor(35, 37, 41);
+    if (pastel()) return light() ? QColor(255, 228, 214) : QColor(22, 20, 31);
+    return light() ? QColor(255, 255, 255) : QColor(0, 0, 0);
+}
+QColor NewStyle::text() {
+    if (greyPalette()) return QColor(241, 242, 244);
+    if (pastel()) return light() ? QColor(27, 28, 42) : QColor(244, 242, 250);
+    return light() ? QColor(10, 10, 11) : QColor(245, 245, 247);
+}
+QColor NewStyle::muted() {
+    if (greyPalette()) return QColor(173, 177, 184);
+    if (pastel()) return light() ? QColor(110, 108, 136) : QColor(176, 170, 198);
+    return light() ? QColor(105, 105, 112) : QColor(142, 142, 150);
+}
+QColor NewStyle::solid() {
+    if (greyPalette()) return QColor(45, 48, 53);
+    if (pastel()) return light() ? QColor(255, 247, 252) : QColor(36, 31, 51);
+    return light() ? QColor(243, 243, 246) : QColor(21, 21, 24);
+}
 QColor NewStyle::accent() { return pastel() ? QColor(124, 107, 242) : text(); }
 QColor NewStyle::outline() { return withAlpha(muted(), 55); }
 QColor NewStyle::overlay(int alpha) { return light() ? QColor(0, 0, 0, alpha / 2) : QColor(255, 255, 255, alpha); }
@@ -669,6 +689,10 @@ QFont NewStyle::font(qreal px, int weight) {
 
 QPalette NewStyle::palette() {
     const QColor bg = background(), ink = text(), dim = muted();
+    const QColor highlight = pastel() ? (light() ? blend(solid(), accent(), .15) : QColor(72, 60, 120))
+                                      : light() ? QColor(222, 222, 228) : QColor(52, 52, 58);
+    const QColor link = pastel() ? (light() ? QColor(82, 65, 168) : QColor(170, 158, 255))
+                                 : light() ? QColor(30, 100, 200) : QColor(120, 180, 255);
     QPalette p;
     for (auto group : {QPalette::Active, QPalette::Inactive, QPalette::Disabled}) {
         p.setColor(group, QPalette::Window, bg);
@@ -681,10 +705,10 @@ QPalette NewStyle::palette() {
         p.setColor(group, QPalette::BrightText, bg);
         p.setColor(group, QPalette::ToolTipBase, solid());
         p.setColor(group, QPalette::ToolTipText, ink);
-        p.setColor(group, QPalette::Highlight, pastel() ? QColor(72, 60, 120) : light() ? QColor(222, 222, 228) : QColor(52, 52, 58));
+        p.setColor(group, QPalette::Highlight, highlight);
         p.setColor(group, QPalette::HighlightedText, ink);
-        p.setColor(group, QPalette::Link, pastel() ? QColor(170, 158, 255) : light() ? QColor(30, 100, 200) : QColor(120, 180, 255));
-        p.setColor(group, QPalette::LinkVisited, pastel() ? QColor(170, 158, 255) : light() ? QColor(30, 100, 200) : QColor(120, 180, 255));
+        p.setColor(group, QPalette::Link, link);
+        p.setColor(group, QPalette::LinkVisited, link);
         p.setColor(group, QPalette::PlaceholderText, dim);
         p.setColor(group, QPalette::Light, solid().lighter(130));
         p.setColor(group, QPalette::Midlight, solid().lighter(115));
@@ -708,12 +732,14 @@ QString NewStyle::styleSheet() {
     const bool day = light();
     const QColor ink = text(), dim = muted(), line = outline();
     // Pastel's rows are plum plates, as on the phone; the others are glass.
-    const QColor glassTop = pastel() ? QColor(46, 39, 68, 240) : day ? QColor(255, 255, 255, 205) : QColor(255, 255, 255, 15);
-    const QColor glassBottom = pastel() ? QColor(40, 34, 60, 235) : day ? QColor(248, 248, 250, 160) : QColor(255, 255, 255, 9);
+    const QColor glassTop = pastel() && !day ? QColor(46, 39, 68, 240) : day ? QColor(255, 255, 255, 205) : QColor(255, 255, 255, 15);
+    const QColor glassBottom = pastel() && !day ? QColor(40, 34, 60, 235) : day ? QColor(248, 248, 250, 160) : QColor(255, 255, 255, 9);
     const QColor well = day ? QColor(0, 0, 0, 10) : QColor(255, 255, 255, 14);
     const QColor hover = overlay(22), press = overlay(44);
     const QColor tint = withAlpha(accent(), pastel() ? 70 : day ? 30 : 40), tintRim = withAlpha(accent(), pastel() ? 200 : 90);
-    const QColor menu = pastel() ? QColor(30, 26, 44, 250) : day ? QColor(250, 250, 252, 250) : QColor(14, 14, 16, 250);
+    const QColor menu = greyPalette() ? withAlpha(solid(), 250)
+        : pastel() && !day ? QColor(30, 26, 44, 250)
+        : day ? QColor(250, 250, 252, 250) : QColor(14, 14, 16, 250);
     const QString glass = QStringLiteral("qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 %1,stop:1 %2)").arg(rgba(glassTop), rgba(glassBottom));
     return QStringLiteral(
         "QMainWindow, QDialog { background: %1; }\n"
@@ -770,10 +796,31 @@ QString NewStyle::styleSheet() {
 
 void NewStyle::paintBackdrop(QPainter &p, const QRect &r) {
     p.fillRect(r, background());
+    if (greyPalette()) {
+        QLinearGradient wash(r.topLeft(), r.bottomRight());
+        wash.setColorAt(0, QColor(44, 46, 51));
+        wash.setColorAt(.54, background());
+        wash.setColorAt(1, QColor(39, 41, 46));
+        p.fillRect(r, wash);
+        QRadialGradient light(QPointF(r.left() + r.width() * .88, r.top() + r.height() * .08),
+                              std::max(r.width(), r.height()) * .7);
+        light.setColorAt(0, QColor(185, 190, 200, 16));
+        light.setColorAt(1, QColor(185, 190, 200, 0));
+        p.fillRect(r, light);
+        return;
+    }
     if (pastel()) {
         // The mobile Pastel wash: plum to blue, with warm and lilac light in the corners.
         const qreal w = r.width(), h = r.height();
         QLinearGradient wash(r.topLeft(), r.bottomRight());
+        if (light()) {
+            wash.setColorAt(0, QColor(255, 220, 208));
+            wash.setColorAt(.34, QColor(248, 228, 244));
+            wash.setColorAt(.68, QColor(226, 214, 248));
+            wash.setColorAt(1, QColor(198, 216, 252));
+            p.fillRect(r, wash);
+            return;
+        }
         wash.setColorAt(0, QColor(92, 58, 96)); wash.setColorAt(.46, QColor(46, 40, 78)); wash.setColorAt(1, QColor(36, 62, 112));
         p.fillRect(r, wash);
         for (const auto &[x, y, radius, colour] : {std::tuple{.08, .02, .8, QColor(255, 150, 130, 120)},
@@ -804,21 +851,21 @@ void NewStyle::paintGlass(QPainter &p, const QRectF &r0, qreal radius, const QCo
     if (pastel()) {
         // As the phone's selectedShape: the plum plate a step towards lilac, solid, with a 1.5 px lilac edge.
         // The chosen row asks for the text colour, which in Pastel is the lilac accent.
-        const QColor plate(42, 36, 62);
+        const QColor plate = day ? QColor(Qt::white) : QColor(42, 36, 62);
         if (tint.isValid()) {
             const QColor mark = tint == text() ? accent() : tint;
             p.save();
             p.setRenderHint(QPainter::Antialiasing);
-            p.setPen(QPen(withAlpha(mark, 230), 1.5));
-            p.setBrush(blend(plate, mark, .22));
+            p.setPen(QPen(withAlpha(mark, day ? 200 : 230), 1.5));
+            p.setBrush(blend(plate, mark, day ? .12 : .22));
             const QRectF edge = r0.adjusted(.75, .75, -.75, -.75);
             const qreal round = std::min({radius, edge.height() / 2, edge.width() / 2});
             p.drawRoundedRect(edge, round, round);
             p.restore();
             return;
         }
-        high = QColor(46, 39, 68);
-        low = QColor(40, 34, 60);
+        high = day ? plate : QColor(46, 39, 68);
+        low = day ? plate : QColor(40, 34, 60);
     } else if (tint.isValid()) { high = withAlpha(tint, day ? 36 : 44); low = withAlpha(tint, day ? 20 : 26); }
     else { high = day ? QColor(255, 255, 255, 205) : QColor(255, 255, 255, 15); low = day ? QColor(248, 248, 250, 160) : QColor(255, 255, 255, 9); }
     QLinearGradient body(0, r0.top(), 0, r0.bottom());
@@ -1404,7 +1451,10 @@ namespace {
             p.setClipPath(shape);
             p.fillRect(rect(), NewStyle::background());
             if (!m_backdrop.isNull()) p.drawPixmap(m_backdropOrigin - mapToGlobal(QPoint()), m_backdrop);
-            p.fillRect(rect(), withAlpha(NewStyle::pastel() ? QColor(30, 26, 44) : NewStyle::light() ? QColor(250, 250, 252) : QColor(12, 12, 14), 200));
+            const QColor veil = greyPalette() ? NewStyle::solid()
+                : NewStyle::pastel() && !NewStyle::light() ? QColor(30, 26, 44)
+                : NewStyle::light() ? QColor(250, 250, 252) : QColor(12, 12, 14);
+            p.fillRect(rect(), withAlpha(veil, 200));
             p.restore();
             p.setPen(QPen(NewStyle::outline(), 1));
             p.setBrush(Qt::NoBrush);

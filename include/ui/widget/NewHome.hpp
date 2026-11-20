@@ -30,7 +30,10 @@ namespace NewStyle {
     inline constexpr auto OledTheme = "NewOLED";
     inline constexpr auto WhiteTheme = "NewWhite";
     // The same screen in the mobile app's Pastel palette: plum, with a lilac accent.
+    // Keep the saved key for the original dark Pastel palette.
     inline constexpr auto PastelTheme = "NewPastel";
+    inline constexpr auto PastelLightTheme = "NewPastelLight";
+    inline constexpr auto GreyTheme = "NewGrey";
     bool isTheme(const QString &theme);
     void setTheme(const QString &theme);
     bool active();

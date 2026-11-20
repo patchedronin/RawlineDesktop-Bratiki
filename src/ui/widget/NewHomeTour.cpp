@@ -129,7 +129,9 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
         // Local sample data only: display the subscription routing row without fetching a subscription.
         if (const auto group = Configs::dataManager->groupsRepo->CurrentGroup()) group->url = QStringLiteral("https://subscription.example.invalid");
     })};
-    for (const QString theme : {QString::fromLatin1(NewStyle::OledTheme), QString::fromLatin1(NewStyle::WhiteTheme), QString::fromLatin1(NewStyle::PastelTheme)}) {
+    for (const QString theme : {QString::fromLatin1(NewStyle::OledTheme), QString::fromLatin1(NewStyle::WhiteTheme),
+                                QString::fromLatin1(NewStyle::PastelTheme), QString::fromLatin1(NewStyle::PastelLightTheme),
+                                QString::fromLatin1(NewStyle::GreyTheme)}) {
         s << std::pair{QString(), std::function<void()>([tour, mw, theme] {
             tour->theme = theme;
             Configs::dataManager->settingsRepo->theme = theme;

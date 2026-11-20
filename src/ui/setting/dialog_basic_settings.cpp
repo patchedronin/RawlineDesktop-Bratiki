@@ -366,10 +366,11 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     ui->theme->addItem("QDarkStyle");
     // Custom stylesheet themes, not QStyleFactory keys.
     ui->theme->addItems({"FlatGray", "LightBlue", "SoftPink", "BlackSoft"});
-    // The new interface: the mobile app's look, in its two themes, first in the list.
-    ui->theme->insertItem(0, tr("Rawline OLED"), QString::fromLatin1(NewStyle::OledTheme));
-    ui->theme->insertItem(1, tr("Rawline White"), QString::fromLatin1(NewStyle::WhiteTheme));
-    ui->theme->insertItem(2, tr("Rawline Pastel"), QString::fromLatin1(NewStyle::PastelTheme));
+    ui->theme->insertItem(0, QStringLiteral("Rawline OLED"), QString::fromLatin1(NewStyle::OledTheme));
+    ui->theme->insertItem(1, QStringLiteral("Rawline White"), QString::fromLatin1(NewStyle::WhiteTheme));
+    ui->theme->insertItem(2, QStringLiteral("Rawline Pastel Dark"), QString::fromLatin1(NewStyle::PastelTheme));
+    ui->theme->insertItem(3, QStringLiteral("Rawline Pastel Light"), QString::fromLatin1(NewStyle::PastelLightTheme));
+    ui->theme->insertItem(4, QStringLiteral("Rawline Grey"), QString::fromLatin1(NewStyle::GreyTheme));
     ui->enable_custom_icon->setChecked(Configs::dataManager->settingsRepo->use_custom_icons);
     ui->follow_status_in_taskbar->setChecked(Configs::dataManager->settingsRepo->follow_status_in_taskbar);
     ui->follow_status_in_taskbar->setEnabled(ui->enable_custom_icon->isChecked());

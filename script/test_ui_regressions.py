@@ -48,11 +48,11 @@ class InterfaceRegressions(unittest.TestCase):
         self.assertIn("dialog->isWindow()", body)
 
     def test_pastel_selection_matches_the_phone(self):
-        # The phone's selectedShape: plate blended 22% to lilac, 1.5 px lilac edge at alpha 230.
+        # Match the phone's light and dark Pastel selection tones.
         text = read("src/ui/widget/NewHome.cpp")
         self.assertIn("tint == text() ? accent() : tint", text)
-        self.assertIn("p.setPen(QPen(withAlpha(mark, 230), 1.5));", text)
-        self.assertIn("p.setBrush(blend(plate, mark, .22));", text)
+        self.assertIn("p.setPen(QPen(withAlpha(mark, day ? 200 : 230), 1.5));", text)
+        self.assertIn("p.setBrush(blend(plate, mark, day ? .12 : .22));", text)
 
     def test_windows_and_menus_have_no_black_corners(self):
         text = read("src/ui/widget/NewHome.cpp")
