@@ -193,10 +193,12 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 h->m_subscriptionTitle->indexOf(h->m_add) + 1 != h->m_subscriptionTitle->indexOf(h->m_refresh))
                 qFatal("Hidden subscription controls are not reachable");
         })};
-        s << std::pair{QStringLiteral("hidden-block-group-picker"), std::function<void()>([home] {
+        s << std::pair{QStringLiteral("hidden-block-group-picker"), std::function<void()>([home, mw] {
             auto *heading = home()->m_groupHeading;
             if (!(heading->focusPolicy() & Qt::TabFocus))
                 qFatal("Hidden subscription heading cannot be reached by Tab");
+            // A previously opened popup can leave the CI window inactive on Windows.
+            QApplication::setActiveWindow(mw);
             heading->setFocus(Qt::TabFocusReason);
             if (!heading->hasFocus()) qFatal("Hidden subscription heading could not take focus");
             QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
