@@ -294,6 +294,44 @@ namespace {
         window->setMask(QRegion(shape.toFillPolygon().toPolygon()));
     }
 
+#ifdef Q_OS_WIN
+    void clipNativeFrame(QWidget *window, HWND hwnd, bool themed) {
+        const auto previous = window->property("rawlineNativeFrameRegion").toRect();
+        if (!themed || window->isMaximized() || window->isFullScreen()) {
+            if (previous.isValid()) {
+                window->setProperty("rawlineNativeFrameRegion", QVariant());
+                if (!SetWindowRgn(hwnd, nullptr, TRUE)) window->setProperty("rawlineNativeFrameRegion", previous);
+            }
+            return;
+        }
+        if (window->isMinimized()) return;
+        RECT outer{};
+        if (!GetWindowRect(hwnd, &outer)) return;
+        RECT visible = outer;
+        using GetAttribute = HRESULT(WINAPI *)(HWND, DWORD, PVOID, DWORD);
+        static const auto get = [] {
+            const HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+            return dwm ? reinterpret_cast<GetAttribute>(GetProcAddress(dwm, "DwmGetWindowAttribute")) : nullptr;
+        }();
+        RECT frame{};
+        if (get && SUCCEEDED(get(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, &frame, sizeof frame)) &&
+            frame.left >= outer.left && frame.top >= outer.top && frame.right <= outer.right && frame.bottom <= outer.bottom &&
+            frame.left < frame.right && frame.top < frame.bottom) visible = frame;
+        const QRect bounds(visible.left - outer.left, visible.top - outer.top, visible.right - visible.left, visible.bottom - visible.top);
+        const int diameter = qRound(14 * window->devicePixelRatioF());
+        if (!bounds.isValid() || (previous == bounds && window->property("rawlineNativeFrameDiameter").toInt() == diameter)) return;
+        const HRGN shape = CreateRoundRectRgn(bounds.x(), bounds.y(), bounds.x() + bounds.width(), bounds.y() + bounds.height(), diameter, diameter);
+        if (!shape) return;
+        window->setProperty("rawlineNativeFrameRegion", bounds);
+        window->setProperty("rawlineNativeFrameDiameter", diameter);
+        if (!SetWindowRgn(hwnd, shape, TRUE)) {
+            DeleteObject(shape);
+            window->setProperty("rawlineNativeFrameRegion", previous);
+            window->setProperty("rawlineNativeFrameDiameter", QVariant());
+        }
+    }
+#endif
+
     // A dialog in the new style is drawn like the main window: no system frame, our own title bar, a round body.
     // Windows 10 never rounds a framed window, so the corners come only from painting them.
     constexpr int kDialogBar = 36, kDialogRadius = 14, kDialogGrip = 6;
@@ -351,6 +389,19 @@ namespace {
             if (!watched->isWidgetType()) return false;
             auto *widget = static_cast<QWidget *>(watched);
             if (event->type() == QEvent::Show) NewStyle::themeFrame(widget);
+#ifdef Q_OS_WIN
+            const auto type = event->type();
+            if (widget->isWindow() && (type == QEvent::Resize || type == QEvent::WindowStateChange ||
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+                type == QEvent::DevicePixelRatioChange ||
+#endif
+                type == QEvent::WinIdChange)) {
+                if (event->type() == QEvent::WinIdChange) widget->setProperty("rawlineNativeFrameRegion", QVariant());
+                if (widget->isVisible() && widget->internalWinId() &&
+                    (widget->windowFlags() & Qt::WindowTitleHint) && !(widget->windowFlags() & Qt::FramelessWindowHint))
+                    clipNativeFrame(widget, reinterpret_cast<HWND>(widget->internalWinId()), NewStyle::active());
+            }
+#endif
             if (!NewStyle::active()) return false;
             if ((event->type() == QEvent::Show || event->type() == QEvent::Resize) && widget->isWindow() && qobject_cast<QMenu *>(widget))
                 clipRoundedWindow(widget, menuRadius);
@@ -565,10 +616,12 @@ void NewStyle::themeFrame(QWidget *window) {
         const HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
         return dwm ? reinterpret_cast<SetAttribute>(GetProcAddress(dwm, "DwmSetWindowAttribute")) : nullptr;
     }();
-    if (!set || !window || !window->isWindow() || !window->windowHandle() ||
+    if (!window || !window->isWindow() || !window->internalWinId() ||
         !(window->windowFlags() & Qt::WindowTitleHint) || (window->windowFlags() & Qt::FramelessWindowHint)) return;
-    const HWND hwnd = reinterpret_cast<HWND>(window->winId());
+    const HWND hwnd = reinterpret_cast<HWND>(window->internalWinId());
     const bool themed = active();
+    clipNativeFrame(window, hwnd, themed);
+    if (!set) return;
     const BOOL dark = themed ? !light() : qApp->palette().color(QPalette::Window).lightness() < 128;
     set(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof dark);
     // Windows 11 paints the caption in the theme's own ground and ink; older systems ignore these.
@@ -580,7 +633,7 @@ void NewStyle::themeFrame(QWidget *window) {
     set(hwnd, 35 /* DWMWA_CAPTION_COLOR */, &caption, sizeof caption);
     set(hwnd, 36 /* DWMWA_TEXT_COLOR */, &ink, sizeof ink);
     set(hwnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
-    const DWORD cornerPreference = 3; // DWMWCP_ROUNDSMALL
+    const DWORD cornerPreference = 0; // DWMWCP_DEFAULT
     set(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPreference, sizeof cornerPreference);
 #else
     Q_UNUSED(window)
@@ -2802,7 +2855,15 @@ namespace {
             pen.setDashOffset(m_phase / 2.0);
             p.setPen(pen);
             p.setBrush(Qt::NoBrush);
-            for (const auto &block : m_blocks) if (block.widget && block.widget->isVisible()) p.drawRoundedRect(QRectF(frameOf(block)).adjusted(-4, -4, 4, 4), 16, 16);
+            for (const auto &block : m_blocks) {
+                if (!block.widget || !block.widget->isVisible()) continue;
+                const QRect visible = visibleAnchor(block.widget, 0);
+                if (visible.isEmpty()) continue;
+                p.save();
+                p.setClipRect(visible, Qt::IntersectClip);
+                p.drawRoundedRect(QRectF(frameOf(block)).adjusted(1, 1, -1, -1), 16, 16);
+                p.restore();
+            }
             if (m_dragged >= 0 && !m_ghost.isNull()) {
                 // The block follows the mouse, lifted and see-through, until it is dropped.
                 p.setOpacity(.82);
@@ -2882,13 +2943,13 @@ namespace {
         }
     private:
         QRect frameOf(const Block &block) const { return QRect(mapFromGlobal(block.widget->mapToGlobal(QPoint())), block.widget->size()); }
-        QRect visibleAnchor(QWidget *anchor) const {
+        QRect visibleAnchor(QWidget *anchor, int inset = 5) const {
             QRect visible = rect();
             for (auto *widget = anchor; widget && widget != parentWidget(); widget = widget->parentWidget()) {
                 if (widget->isHidden()) return {};
                 visible &= QRect(widget->mapTo(parentWidget(), QPoint()), widget->size());
             }
-            return visible.adjusted(5, 5, -5, -5);
+            return visible.adjusted(inset, inset, -inset, -inset);
         }
         void place() {
             for (const auto &button : m_buttons) {

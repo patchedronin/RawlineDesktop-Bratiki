@@ -452,7 +452,15 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 const auto style = GetWindowLongPtrW(reinterpret_cast<HWND>(id), GWL_STYLE);
                 return (style & WS_CAPTION) == WS_CAPTION;
             };
+            const auto hasRoundedRegion = [](WId id) {
+                const HRGN region = CreateRectRgn(0, 0, 0, 0);
+                if (!region) return false;
+                const bool rounded = GetWindowRgn(reinterpret_cast<HWND>(id), region) == COMPLEXREGION;
+                DeleteObject(region);
+                return rounded;
+            };
             check(hasCaption(mainId) && hasCaption(dialogId), "new themes must use the Windows caption");
+            check(hasRoundedRegion(mainId) && hasRoundedRegion(dialogId), "new Windows frame is still rectangular");
 #else
             check(dialog.testAttribute(Qt::WA_TranslucentBackground), "new dialog must have a translucent surface");
 #endif
@@ -465,6 +473,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
 #ifdef Q_OS_WIN
                 check(mw->winId() == mainId && dialog.winId() == dialogId && hasCaption(mainId) && hasCaption(dialogId),
                       "switching with settings open changed the Windows frame");
+                check(!hasRoundedRegion(mainId) && !hasRoundedRegion(dialogId), "Rawline rounding survived the switch to classic");
 #endif
                 check(dialog.contentsMargins() == margins, "title bar space leaked into classic layout");
                 check(!dialog.testAttribute(Qt::WA_TranslucentBackground) && !dialog.testAttribute(Qt::WA_NoSystemBackground), "classic dialog still transparent");
@@ -473,6 +482,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
 #ifdef Q_OS_WIN
                 check(mw->winId() == mainId && dialog.winId() == dialogId && hasCaption(mainId) && hasCaption(dialogId),
                       "switching back changed the Windows frame");
+                check(hasRoundedRegion(mainId) && hasRoundedRegion(dialogId), "Rawline rounding did not return");
 #else
                 check(dialog.property("newFrame").toBool(), "existing dialog did not recover the new frame");
 #endif

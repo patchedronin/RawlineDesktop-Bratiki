@@ -1030,6 +1030,9 @@ target_link_libraries(Rawline PRIVATE
         ${NKR_EXTERNAL_TARGETS}
         ${PLATFORM_LIBRARIES}
 )
+if(WIN32)
+    target_link_libraries(Rawline PRIVATE gdi32)
+endif()
 
 set_target_properties(Rawline PROPERTIES OUTPUT_NAME Rawline)
 qt_finalize_executable(Rawline)
