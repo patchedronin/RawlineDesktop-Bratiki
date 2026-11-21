@@ -37,6 +37,7 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <cstdlib>
 #include <functional>
 #include <memory>
 
@@ -323,6 +324,14 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                     if (tab->compactTab() != needsIcons || tab->toolTip() != tab->text() ||
                         (!needsIcons && tab->width() < metrics.horizontalAdvance(tab->text()) + 20))
                         qFatal("Tab labels or icons do not fit in %s", qPrintable(panel));
+                }
+                if (needsIcons && h->m_sendLogs->isHidden()) {
+                    const auto *first = h->m_tabs.first();
+                    const auto *last = h->m_tabs.last();
+                    if (first->geometry().left() != 0 || last->geometry().right() != h->m_tabsBar->width() - 1 ||
+                        std::any_of(h->m_tabs.cbegin(), h->m_tabs.cend(),
+                                    [first](const auto *tab) { return std::abs(tab->width() - first->width()) > 1; }))
+                        qFatal("Compact tabs do not fill the row evenly in %s", qPrintable(panel));
                 }
                 const auto viewportBounds = bounds(h->m_contentScroll->viewport());
                 const auto checkWidth = [&](QWidget *widget) {

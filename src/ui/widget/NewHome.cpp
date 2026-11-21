@@ -2303,9 +2303,6 @@ void NewHome::buildBody(QVBoxLayout *body) {
     m_sendLogs->setIconName("share");
     m_sendLogs->setToolTip(QCoreApplication::translate("MainWindow", "Send logs"));
     m_sendLogs->setFixedSize(36, 36);
-    auto logButtonPolicy = m_sendLogs->sizePolicy();
-    logButtonPolicy.setRetainSizeWhenHidden(true);
-    m_sendLogs->setSizePolicy(logButtonPolicy);
     m_sendLogs->hide();
     connect(m_sendLogs, &QAbstractButton::clicked, this, [this] { mw->sendLogs(); });
     tabs->addWidget(m_sendLogs);
@@ -2566,6 +2563,7 @@ void NewHome::selectTab(int index, bool animated) {
     if (index < 0 || index >= m_tabs.size()) return;
     for (int i = 0; i < m_tabs.size(); ++i) m_tabs[i]->setSelected(i == index);
     m_sendLogs->setVisible(index > 0 && mw->ui->stats_widget->widget(index - 1) == mw->ui->Logs);
+    updateTabPresentation();
     const int page = index == 0 ? 0 : 1;
     const bool changed = m_pages->currentIndex() != page || (page == 1 && mw->ui->stats_widget->currentIndex() != index - 1);
     m_pages->setCurrentIndex(page);
@@ -3248,7 +3246,9 @@ void NewHome::updateCentering() {
 
 int NewHome::fullTabBarWidth() const {
     if (!m_sendLogs) return 0;
-    int required = m_sendLogs->width() + m_tabs.size() * m_tabsBar->layout()->spacing();
+    const int spacing = m_tabsBar->layout()->spacing();
+    int required = (m_tabs.size() - 1) * spacing;
+    if (!m_sendLogs->isHidden()) required += m_sendLogs->width() + spacing;
     for (const auto *tab : m_tabs) required += tab->tabLabelWidth();
     return required;
 }
@@ -3256,7 +3256,12 @@ int NewHome::fullTabBarWidth() const {
 void NewHome::updateTabPresentation() {
     if (!m_sendLogs) return;
     const bool compact = fullTabBarWidth() > m_tabsBar->width();
-    for (auto *tab : m_tabs) tab->setCompactTab(compact);
+    auto *tabs = static_cast<QBoxLayout *>(m_tabsBar->layout());
+    for (qsizetype i = 0; i < m_tabs.size(); ++i) {
+        m_tabs[i]->setCompactTab(compact);
+        tabs->setStretch(i, compact ? 1 : 0);
+    }
+    tabs->setStretch(m_tabs.size(), compact ? 0 : 1);
 }
 
 void NewHome::updateSubscriptionScroll() {
