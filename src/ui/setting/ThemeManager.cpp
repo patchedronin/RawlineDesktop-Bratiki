@@ -463,11 +463,17 @@ void ThemeManager::ApplyTheme(const QString &theme, bool force) {
 
     emit themeChanged(theme);
 
+#ifdef Q_OS_WIN
+    for (auto *window : QApplication::topLevelWidgets()) {
+        if (window->isVisible()) NewStyle::themeFrame(window);
+    }
+#else
     // Leaving the new look also re-creates the window without its own frame; applying the classic theme once more
     // after that, on a settled window, gives it exactly the state a start with this theme gives.
     if (leavingNew && !enteringNew) {
         QTimer::singleShot(0, this, [this, theme] { if (current_theme == theme) ApplyTheme(theme, true); });
     }
+#endif
 }
 
 QIcon ThemeManager::standardIcon(QStyle::StandardPixmap pixmap) {

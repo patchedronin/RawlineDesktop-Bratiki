@@ -60,6 +60,7 @@ namespace Configs {
 
     void SettingsRepo::initMaps() {
         boolMap = {
+            {"new_layout_join_subscription", &new_layout_join_subscription},
             {"xray_geo_auto_update", &xray_geo_auto_update},
             {"seasonal_auto_13_migrated", &seasonal_auto_13_migrated},
             {"dns_optimistic_164_migrated", &dns_optimistic_164_migrated},

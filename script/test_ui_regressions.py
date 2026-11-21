@@ -56,8 +56,8 @@ class InterfaceRegressions(unittest.TestCase):
 
     def test_windows_and_menus_have_no_black_corners(self):
         text = read("src/ui/widget/NewHome.cpp")
-        # The tray menu's window exists before the theme: it must be made again, see-through.
-        self.assertIn("window->destroy();", text.split("void clearMenuWindow", 1)[1].split("\n    }\n", 1)[0])
+        self.assertIn("clipRoundedWindow(widget, 9);", text)
+        self.assertIn("if (auto *menu = qobject_cast<QMenu *>(widget)) menu->clearMask();", text)
         # A clear fill on a child of the sheet cuts a hole down to the desktop.
         picker = text.split("void NewHome::showGroupPicker()", 1)[1].split("\n}\n", 1)[0]
         self.assertNotIn("setAttribute(Qt::WA_TranslucentBackground)", picker)
@@ -71,11 +71,11 @@ class InterfaceRegressions(unittest.TestCase):
         self.assertLess(setup.index("trayMenu->setAttribute(Qt::WA_TranslucentBackground);"), setup.index("tray->setContextMenu(trayMenu);"))
         self.assertGreater(setup.index("trayMenu->setAttribute(Qt::WA_TranslucentBackground);"), made)
 
-    def test_dialogs_are_round_without_the_system(self):
-        # Windows 10 never rounds a framed window: dialogs draw their own round body and title bar.
+    def test_windows_keep_the_native_dialog_frame(self):
         text = read("src/ui/widget/NewHome.cpp")
-        self.assertIn("if (auto *dialog = qobject_cast<QDialog *>(watched); dialog && dialog->isWindow()) frameDialog(dialog);", text)
-        self.assertIn("paintDialogBody(widget);", text)
+        frame = text.split("void frameDialog(QDialog *dialog)", 1)[1].split("#else", 1)[0]
+        self.assertNotIn("setWindowFlags", frame)
+        self.assertNotIn("WA_TranslucentBackground", frame)
 
     def test_centered_panel_takes_the_whole_column(self):
         text = read("src/ui/widget/NewHome.cpp")

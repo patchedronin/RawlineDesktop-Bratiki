@@ -6,12 +6,14 @@
 #include "include/ui/profile/dialog_edit_profile.h"
 #include "include/ui/utils/ProfilesTableModel.h"
 #include "include/ui/setting/ThemeManager.hpp"
+#include "include/ui/setting/dialog_basic_settings.h"
 #include "include/configs/sub/GroupUpdater.hpp"
 #include "include/database/SettingsRepo.h"
 #include "include/engine/EngineHost.h"
 
 #include <QApplication>
 #include <QBoxLayout>
+#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -19,7 +21,6 @@
 #include <QFile>
 #include <QTextStream>
 #include <QMenu>
-#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QFontMetrics>
 #include "include/database/GroupsRepo.h"
@@ -29,12 +30,21 @@
 #include <QRegularExpression>
 #include <QScreen>
 #include <QScrollBar>
+#include <QScrollArea>
+#include <QWheelEvent>
 #include <QTabWidget>
 #include <QTimer>
 
 #include <algorithm>
 #include <functional>
 #include <memory>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <qt_windows.h>
+#endif
 
 namespace {
     // Sample servers on documentation addresses: rows to look at, nothing to connect to.
@@ -185,35 +195,40 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             check(h->m_routeBox->findChildren<QAbstractButton *>().size() == 1, "routing icon missing");
         })};
         s << std::pair{QStringLiteral("groups"), std::function<void()>([home] { home()->showGroupPicker(); })};
-        s << std::pair{QStringLiteral("hidden-subscription-block"), std::function<void()>([home] {
+        s << std::pair{QStringLiteral("fixed-subscription-picker"), std::function<void()>([home] {
             auto *h = home();
-            auto &settings = *Configs::dataManager->settingsRepo;
-            settings.new_layout_chip = QStringLiteral("hidden");
+            Configs::dataManager->settingsRepo->new_layout_chip = QStringLiteral("hidden");
             h->applyArrangement();
             QApplication::processEvents();
-            if (h->m_chipBox->isVisible() || !h->m_add->isVisible() ||
-                h->m_subscriptionTitle->indexOf(h->m_add) + 1 != h->m_subscriptionTitle->indexOf(h->m_refresh))
-                qFatal("Hidden subscription controls are not reachable");
+            if (!h->m_chipBox->isVisible() || !h->m_add->isVisible() || !h->m_chipBox->isAncestorOf(h->m_add))
+                qFatal("The saved desktop layout hid the subscription picker");
+            if (h->m_contentScroll->verticalScrollBar()->isVisible())
+                qFatal("The outer scroll bar is visible");
         })};
-        s << std::pair{QStringLiteral("hidden-block-group-picker"), std::function<void()>([home, errorPath = tour->dir.filePath(QStringLiteral("keyboard-picker-error.txt"))] {
+        s << std::pair{QStringLiteral("joined-subscription-scroll"), std::function<void()>([home] {
             auto *h = home();
-            auto *heading = h->m_groupHeading;
-            const auto require = [&errorPath](bool passed, const char *message) {
-                if (passed) return;
-                QFile file(errorPath);
-                if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                    file.write(message);
-                    file.close();
-                }
-                qFatal("%s", message);
-            };
-            require(heading->focusPolicy() & Qt::TabFocus, "Hidden subscription heading cannot be reached by Tab");
-            // Exercise the heading's handler independently of application shortcuts and runner window activation.
-            QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
-            require(h->eventFilter(heading, &enter), "The subscription heading did not handle Enter");
-            const auto pickers = h->findChildren<QWidget *>(QStringLiteral("newHomeGroupPicker"));
-            require(std::any_of(pickers.cbegin(), pickers.cend(), [](const QWidget *picker) { return picker->isVisible(); }),
-                    "Enter did not show the subscription picker");
+            auto &settings = *Configs::dataManager->settingsRepo;
+            settings.new_layout_join_subscription = true;
+            h->m_profileColumn->setFixedHeight(175);
+            QApplication::processEvents();
+            h->updateSubscriptionScroll();
+            const int fullHeight = h->m_subscriptionClip->height();
+            auto *viewport = h->m_list->viewport();
+            const QPoint p = viewport->rect().center();
+            QWheelEvent wheel(p, viewport->mapToGlobal(p), QPoint(0, -16), {}, Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate, false);
+            QApplication::sendEvent(viewport, &wheel);
+            if (h->m_subscriptionClip->height() != fullHeight - 16 || h->m_list->verticalScrollBar()->value() != 0)
+                qFatal("Joined scroll did not move the subscription first");
+            h->m_subscriptionScroll->setValue(h->m_subscriptionScroll->maximum());
+            if (h->m_subscriptionClip->isVisible() || h->m_list->verticalScrollBar()->value() <= 0)
+                qFatal("Joined scroll did not continue through the profiles");
+            settings.new_layout_join_subscription = false;
+            h->m_profileColumn->setMinimumHeight(0);
+            h->m_profileColumn->setMaximumHeight(QWIDGETSIZE_MAX);
+            h->updateSubscriptionScroll();
+            h->m_list->scrollToTop();
+            if (!h->m_subscriptionClip->isVisible()) qFatal("Detached subscription did not return");
         })};
         s << std::pair{QStringLiteral("fixed-mode-switches"), std::function<void()>([home] {
             auto *h = home();
@@ -222,12 +237,13 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 h->m_switches->indexOf(h->m_tun) != 0 || h->m_switches->indexOf(h->m_proxy) != 1)
                 qFatal("Both mode switches must stay visible in their fixed order");
         })};
-        s << std::pair{QString(), std::function<void()>([home] {
-            auto &settings = *Configs::dataManager->settingsRepo;
-            settings.new_layout_chip = QStringLiteral("top");
-            home()->applyArrangement();
+        s << std::pair{QStringLiteral("more-menu"), std::function<void()>([home] {
+            home()->showMoreMenu();
+            QApplication::processEvents();
+            const auto *popup = QApplication::activePopupWidget();
+            if (!popup || popup->mask().isEmpty() || popup->mask().contains(QPoint(0, 0)))
+                qFatal("The menu has an uncovered square corner");
         })};
-        s << std::pair{QStringLiteral("more-menu"), std::function<void()>([home] { home()->showMoreMenu(); })};
         s << std::pair{QStringLiteral("add-menu"), std::function<void()>([home] { home()->showAddMenu(); })};
         s << std::pair{QStringLiteral("group-menu"), std::function<void()>([home] { home()->showGroupMenu(); })};
         s << std::pair{QStringLiteral("server-menu"), std::function<void()>([mw] { mw->ui->menu_server->popup(QPoint(400, 300)); })};
@@ -324,8 +340,15 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             list->activateRequested = originalActivation;
             if (activations != 0) qFatal("Double-click started the profile");
             const auto dialogs = mw->findChildren<DialogEditProfile *>();
-            if (std::count_if(dialogs.cbegin(), dialogs.cend(), [](const auto *dialog) { return dialog->isVisible(); }) != 1)
+            const auto editor = std::find_if(dialogs.cbegin(), dialogs.cend(), [](const auto *dialog) { return dialog->isVisible(); });
+            if (editor == dialogs.cend() ||
+                std::count_if(dialogs.cbegin(), dialogs.cend(), [](const auto *dialog) { return dialog->isVisible(); }) != 1)
                 qFatal("Double-click did not open exactly one profile editor");
+            const auto frame = (*editor)->frameGeometry();
+            const auto screen = mw->screen()->availableGeometry();
+            if (!screen.contains(frame) || !mw->frameGeometry().contains(frame.center()) ||
+                qAbs(frame.center().x() - mw->frameGeometry().center().x()) > 24)
+                qFatal("The editor did not open over the main window");
         })};
         s << std::pair{QStringLiteral("edit-freeturn"), std::function<void()>([mw] {
             auto *editor = new DialogEditProfile("freeturn", Configs::dataManager->settingsRepo->current_group, mw);
@@ -356,20 +379,54 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             QPointer<QPushButton> child = new QPushButton(QStringLiteral("Regression"), &dialog);
             dialog.show();
             QApplication::processEvents();
+#ifdef Q_OS_WIN
+            const auto mainId = mw->winId();
+            const auto dialogId = dialog.winId();
+            const auto hasCaption = [](WId id) {
+                const auto style = GetWindowLongPtrW(reinterpret_cast<HWND>(id), GWL_STYLE);
+                return (style & WS_CAPTION) == WS_CAPTION;
+            };
+            check(hasCaption(mainId) && hasCaption(dialogId), "new themes must use the Windows caption");
+#else
             check(dialog.testAttribute(Qt::WA_TranslucentBackground), "new dialog must have a translucent surface");
+#endif
             const QStringList classicThemes = QStringList{"System", "QDarkStyle", "FlatGray", "LightBlue", "SoftPink", "BlackSoft"}
                 + QStyleFactory::keys();
             for (const auto &classic : classicThemes) {
                 themeManager()->ApplyTheme(classic);
                 QApplication::processEvents();
                 check(child && dialog.windowFlags() == flags, "classic dialog flags or children changed");
+#ifdef Q_OS_WIN
+                check(mw->winId() == mainId && dialog.winId() == dialogId && hasCaption(mainId) && hasCaption(dialogId),
+                      "switching with settings open changed the Windows frame");
+#endif
                 check(dialog.contentsMargins() == margins, "title bar space leaked into classic layout");
                 check(!dialog.testAttribute(Qt::WA_TranslucentBackground) && !dialog.testAttribute(Qt::WA_NoSystemBackground), "classic dialog still transparent");
                 themeManager()->ApplyTheme(theme);
                 QApplication::processEvents();
+#ifdef Q_OS_WIN
+                check(mw->winId() == mainId && dialog.winId() == dialogId && hasCaption(mainId) && hasCaption(dialogId),
+                      "switching back changed the Windows frame");
+#else
                 check(dialog.property("newFrame").toBool(), "existing dialog did not recover the new frame");
+#endif
             }
             dialog.close();
+#ifdef Q_OS_WIN
+            {
+                DialogBasicSettings settings(mw);
+                settings.show();
+                auto *picker = settings.findChild<QComboBox *>(QStringLiteral("theme"));
+                check(picker && picker->findText(QStringLiteral("System")) >= 0, "settings theme selector missing");
+                picker->setCurrentIndex(picker->findText(QStringLiteral("System")));
+                QApplication::processEvents();
+                check(settings.isVisible() && hasCaption(settings.winId()) && hasCaption(mainId) && mw->winId() == mainId,
+                      "System lost its native frame while settings remained open");
+                check(mw->centralWidget()->autoFillBackground() && mw->mask().isEmpty(), "classic background is not opaque");
+                tour->shoot(QStringLiteral("system-with-settings-open"));
+            }
+            themeManager()->ApplyTheme(theme);
+#endif
             const auto captionButtons = Qt::WindowTitleHint | Qt::WindowMinimizeButtonHint |
                                         Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint;
             for (const auto &classic : classicThemes) {
@@ -383,7 +440,11 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 check(mw->mask().isEmpty(), "new theme corner mask survived the switch");
                 tour->shoot(QStringLiteral("theme-to-") + classic);
                 themeManager()->ApplyTheme(theme);
+#ifdef Q_OS_WIN
+                check(mw->winId() == mainId && hasCaption(mainId), "main window lost its native caption");
+#else
                 check(mw->windowFlags() & Qt::FramelessWindowHint, "main window did not recover the Rawline frame");
+#endif
             }
         })};
     }

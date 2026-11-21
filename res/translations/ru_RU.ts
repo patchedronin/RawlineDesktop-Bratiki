@@ -17949,6 +17949,10 @@ connection</source>
         <translation>Сменить размер</translation>
     </message>
     <message>
+        <source>Scroll subscription info with servers</source>
+        <translation>Прокручивать сведения о подписке вместе с серверами</translation>
+    </message>
+    <message>
         <source>Drag the panel to the other side</source>
         <translation>Перетащите панель на другую сторону</translation>
     </message>

@@ -277,7 +277,8 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
     UiMode::Apply(this);
     runOnThread([self = QPointer<DialogEditProfile>(this)] {
         if (self == nullptr) return;
-        self->fitToContent();
+        self->ensurePolished();
+        self->fitToContent(true);
         self->show();
     }, this);
 }
@@ -427,15 +428,21 @@ void DialogEditProfile::relayout() {
     }, this);
 }
 
-void DialogEditProfile::fitToContent() {
+void DialogEditProfile::fitToContent(bool centerOnParent) {
     ui->dialog_layout->activate();
     const auto margins = layout()->contentsMargins();
     const QSize preferred = ui->dialog_layout->sizeHint() + QSize(margins.left() + margins.right() + 20,
         margins.top() + margins.bottom() + ui->buttonBox->sizeHint().height() + layout()->spacing());
-    const auto available = screen()->availableGeometry().adjusted(12, 32, -12, -24);
+    const auto *owner = parentWidget() ? parentWidget()->window() : nullptr;
+    const auto *display = centerOnParent && owner ? owner->screen() : screen();
+    const auto available = display->availableGeometry().adjusted(12, 32, -12, -24);
     resize(preferred.boundedTo(available.size()));
-    move(QPoint(qBound(available.left(), x(), qMax(available.left(), available.right() - width() + 1)),
-                qBound(available.top(), y(), qMax(available.top(), available.bottom() - height() + 1))));
+    const QSize frame = frameSize();
+    const QPoint position = centerOnParent && owner
+        ? owner->frameGeometry().center() - QPoint(frame.width() / 2, frame.height() / 2)
+        : frameGeometry().topLeft();
+    move(qBound(available.left(), position.x(), qMax(available.left(), available.right() - frame.width() + 1)),
+         qBound(available.top(), position.y(), qMax(available.top(), available.bottom() - frame.height() + 1)));
 }
 
 bool DialogEditProfile::onEnd() {

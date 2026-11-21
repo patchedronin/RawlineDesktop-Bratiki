@@ -71,7 +71,7 @@ private:
     void updateControls();
     void updateCommonRows();
     void relayout();
-    void fitToContent();
+    void fitToContent(bool centerOnParent = false);
     bool onEnd();
     void editor_cache_updated_impl();
     void setCacheButtonText(QPushButton *button, bool isSet);

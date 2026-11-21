@@ -19,6 +19,7 @@ namespace Configs { class Group; }
 class MainWindow;
 class QBoxLayout;
 class QScrollArea;
+class QScrollBar;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
@@ -200,6 +201,7 @@ class NewProfileList : public QListView {
 public:
     explicit NewProfileList(QWidget *backdrop);
     void queueActivation(const QModelIndex &index);
+    void setJoinedScrollBar(QScrollBar *bar);
     NewProfileDelegate *rowDelegate = nullptr;
     std::function<void(const QModelIndex &)> editRequested;
     std::function<void(const QModelIndex &)> activateRequested;
@@ -233,6 +235,7 @@ private:
     QTimer *m_spinner = nullptr;
     QElapsedTimer m_spinClock;
     QVariantAnimation *m_scroll = nullptr;
+    QScrollBar *m_joinedScroll = nullptr;
 };
 
 class NewHome : public QWidget {
@@ -274,6 +277,7 @@ private:
     void updateNotice();
     // Puts the panel, the subscription card and the connect block where the settings say.
     void applyArrangement();
+    void updateSubscriptionScroll();
     // Centered, the column keeps a phone's width in the middle of the window.
     void updateCentering();
     void setArranging(bool on);
@@ -304,7 +308,11 @@ private:
     NewSwitch *m_tun = nullptr;
     NewSwitch *m_proxy = nullptr;
     QVBoxLayout *m_switches = nullptr;
-    QHBoxLayout *m_subscriptionTitle = nullptr;
+    QWidget *m_subscriptionHeader = nullptr;
+    QWidget *m_subscriptionClip = nullptr;
+    QWidget *m_profileColumn = nullptr;
+    QScrollBar *m_subscriptionScroll = nullptr;
+    bool m_updatingSubscriptionScroll = false;
     QWidget *m_groupHeading = nullptr;
     QPoint m_subscriptionPress;
     bool m_subscriptionDragging = false;

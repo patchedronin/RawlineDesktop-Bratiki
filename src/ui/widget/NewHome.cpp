@@ -54,6 +54,7 @@
 #include <QRegularExpression>
 #include <QRegion>
 #include <QScreen>
+#include <QScopedValueRollback>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QShortcut>
@@ -285,15 +286,10 @@ namespace {
         }
     }
 
-    // A menu's round corners show only on a window without a background or a shadow of its own.
-    void clearMenuWindow(QMenu *menu) {
-        if (menu->property("newCleared").toBool()) return;
-        menu->setProperty("newCleared", true);
-        menu->setAttribute(Qt::WA_TranslucentBackground);
-        menu->setWindowFlag(Qt::NoDropShadowWindowHint);
-        // A menu whose window exists already (the tray's, made at startup) keeps an opaque surface, which shows as
-        // black squares behind the round corners: dropped here, it is made again, see-through, on its next show.
-        if (QWindow *window = menu->windowHandle(); window && window->handle() && !menu->isVisible()) window->destroy();
+    void clipRoundedWindow(QWidget *window, int radius) {
+        QPainterPath shape;
+        shape.addRoundedRect(QRectF(window->rect()), radius, radius);
+        window->setMask(QRegion(shape.toFillPolygon().toPolygon()));
     }
 
     // A dialog in the new style is drawn like the main window: no system frame, our own title bar, a round body.
@@ -301,6 +297,10 @@ namespace {
     constexpr int kDialogBar = 36, kDialogRadius = 14, kDialogGrip = 6;
 
     void frameDialog(QDialog *dialog) {
+#ifdef Q_OS_WIN
+        // Keep the native caption and backing surface when the palette changes.
+        Q_UNUSED(dialog);
+#else
         if (dialog->property("newFrame").toBool()) return;
         const bool shown = dialog->isVisible();
         dialog->setProperty("newFrame", true);
@@ -318,6 +318,7 @@ namespace {
         if (!buttons.isEmpty()) buttons.first()->hide();
         bar->follow(dialog);
         if (shown) dialog->show();
+#endif
     }
 
     Qt::Edges dialogEdges(QWidget *dialog, const QPoint &pos) {
@@ -345,8 +346,12 @@ namespace {
         using QObject::QObject;
     protected:
         bool eventFilter(QObject *watched, QEvent *event) override {
-            if (!NewStyle::active() || !watched->isWidgetType()) return false;
+            if (!watched->isWidgetType()) return false;
             auto *widget = static_cast<QWidget *>(watched);
+            if (event->type() == QEvent::Show) NewStyle::themeFrame(widget);
+            if (!NewStyle::active()) return false;
+            if ((event->type() == QEvent::Show || event->type() == QEvent::Resize) && widget->isWindow() && qobject_cast<QMenu *>(widget))
+                clipRoundedWindow(widget, 9);
             if (widget->property("newFrame").toBool()) {
                 // The framed dialog's body, its title bar's place and its edges for resizing.
                 if (event->type() == QEvent::Paint && !m_painting) {
@@ -393,15 +398,10 @@ namespace {
                 g_keyFocus = reason == Qt::TabFocusReason || reason == Qt::BacktabFocusReason || reason == Qt::ShortcutFocusReason;
             } else if (event->type() == QEvent::Polish) {
                 giveHand(widget);
-                if (auto *menu = qobject_cast<QMenu *>(watched)) clearMenuWindow(menu);
                 if (auto *dialog = qobject_cast<QDialog *>(watched); dialog && dialog->isWindow()) frameDialog(dialog);
             } else if (event->type() == QEvent::Show && widget->isWindow() &&
                        (widget->inherits("QComboBoxPrivateContainer") || widget->inherits("QTipLabel"))) {
                 NewStyle::roundCorners(widget, true);
-            } else if (event->type() == QEvent::Show && widget->isWindow() && !(widget->windowFlags() & Qt::FramelessWindowHint) &&
-                       (widget->windowType() == Qt::Dialog || widget->windowType() == Qt::Window)) {
-                // Every dialog's frame follows the theme, not only the ones that set it themselves.
-                NewStyle::themeFrame(widget);
             } else if (auto *view = qobject_cast<QAbstractItemView *>(widget); view && event->type() == QEvent::Show && widget->isWindow()) {
                 // A completer's list: the sheet makes views see-through, which a window of its own cannot be.
                 const auto rgba = [](const QColor &c) { return QStringLiteral("rgba(%1,%2,%3,%4)").arg(c.red()).arg(c.green()).arg(c.blue()).arg(c.alpha()); };
@@ -539,12 +539,7 @@ QStyle *NewStyle::createStyle() { return new NewProxyStyle; }
 void NewStyle::roundCorners(QWidget *window, bool compact) {
     if (window && (window->windowFlags() & Qt::FramelessWindowHint)) {
         if (window->isMaximized() || window->isFullScreen()) window->clearMask();
-        else {
-            QPainterPath shape;
-            const qreal radius = compact ? 10 : 14;
-            shape.addRoundedRect(QRectF(window->rect()), radius, radius);
-            window->setMask(QRegion(shape.toFillPolygon().toPolygon()));
-        }
+        else clipRoundedWindow(window, compact ? 10 : 14);
     }
 #ifdef Q_OS_WIN
     // Windows 11 rounds a window without a frame only when asked; older systems ignore the attribute.
@@ -568,17 +563,23 @@ void NewStyle::themeFrame(QWidget *window) {
         const HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
         return dwm ? reinterpret_cast<SetAttribute>(GetProcAddress(dwm, "DwmSetWindowAttribute")) : nullptr;
     }();
-    if (!set || !window) return;
+    if (!set || !window || !window->isWindow() || !window->windowHandle() ||
+        !(window->windowFlags() & Qt::WindowTitleHint) || (window->windowFlags() & Qt::FramelessWindowHint)) return;
     const HWND hwnd = reinterpret_cast<HWND>(window->winId());
-    const BOOL dark = !light();
+    const bool themed = active();
+    const BOOL dark = themed ? !light() : qApp->palette().color(QPalette::Window).lightness() < 128;
     set(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof dark);
     // Windows 11 paints the caption in the theme's own ground and ink; older systems ignore these.
     const auto ref = [](const QColor &c) { return COLORREF(RGB(c.red(), c.green(), c.blue())); };
-    const COLORREF caption = ref(background()), ink = ref(text()), border = ref(blend(background(), muted(), .35));
+    constexpr COLORREF useDefault = 0xffffffff;
+    const COLORREF caption = themed ? ref(background()) : useDefault;
+    const COLORREF ink = themed ? ref(text()) : useDefault;
+    const COLORREF border = themed ? ref(blend(background(), muted(), .35)) : useDefault;
     set(hwnd, 35 /* DWMWA_CAPTION_COLOR */, &caption, sizeof caption);
     set(hwnd, 36 /* DWMWA_TEXT_COLOR */, &ink, sizeof ink);
     set(hwnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
-    roundCorners(window, false);
+    const DWORD small = 3; // DWMWCP_ROUNDSMALL
+    set(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &small, sizeof small);
 #else
     Q_UNUSED(window)
 #endif
@@ -600,13 +601,7 @@ void NewStyle::setTheme(const QString &theme) {
     if (leaving) {
         // Back in the classic look: menus get their own background again, and every control its own cursor.
         for (auto *widget : QApplication::allWidgets()) {
-            // The tray menu stays see-through: its window cannot be made again once the tray holds it.
-            if (auto *menu = qobject_cast<QMenu *>(widget); menu && menu->objectName() != QLatin1String("trayMenu")) {
-                menu->setAttribute(Qt::WA_TranslucentBackground, false);
-                menu->setAttribute(Qt::WA_NoSystemBackground, false);
-                menu->clearMask();
-                menu->setProperty("newCleared", QVariant());
-            }
+            if (auto *menu = qobject_cast<QMenu *>(widget)) menu->clearMask();
             if (widget->property("newHand").toBool()) { widget->unsetCursor(); widget->setProperty("newHand", QVariant()); }
             if (widget->property("newPopup").toBool()) { widget->setStyleSheet(QString()); widget->setProperty("newPopup", QVariant()); }
             // A dialog kept between uses gets its system frame back.
@@ -634,8 +629,6 @@ void NewStyle::setTheme(const QString &theme) {
     if (entering) for (auto *widget : QApplication::allWidgets()) {
         giveHand(widget);
         if (auto *dialog = qobject_cast<QDialog *>(widget); dialog && dialog->isWindow()) frameDialog(dialog);
-        // A menu shown under the classic look keeps its window; one not shown yet is cleared before it is.
-        if (auto *menu = qobject_cast<QMenu *>(widget); menu && !menu->isVisible()) clearMenuWindow(menu);
     }
 }
 
@@ -746,7 +739,7 @@ QString NewStyle::styleSheet() {
         "QMainWindow, QDialog { background: %1; }\n"
         "QDialog[newFrame=\"true\"] { background: transparent; }\n"
         "QToolTip { background: %2; color: %3; border: 1px solid %4; padding: 6px 10px; }\n"
-        "QMenu { background: %5; border: 1px solid transparent; border-radius: 16px; padding: 6px; }\n"
+        "QMenu { background: %5; border: 1px solid %4; padding: 6px; }\n"
         "QMenu::item { padding: 7px 26px 7px 14px; border-radius: 12px; background: transparent; color: %3; }\n"
         "QMenu::item:selected { background: %6; }\n"
         "QMenu::item:disabled { color: %7; }\n"
@@ -1828,28 +1821,46 @@ void NewProfileList::paintEdgeFades(QPainter &p) {
 }
 
 void NewProfileList::wheelEvent(QWheelEvent *event) {
+    auto *bar = m_joinedScroll ? m_joinedScroll : verticalScrollBar();
     // Touchpads already supply smooth pixel motion, including their own momentum.
     if (!event->pixelDelta().isNull() || event->angleDelta().y() == 0 || event->modifiers()) {
         if (m_scroll) m_scroll->stop();
+        if (m_joinedScroll && !event->pixelDelta().isNull() && !event->modifiers()) {
+            const int old = bar->value();
+            bar->setValue(old - event->pixelDelta().y());
+            event->setAccepted(bar->value() != old);
+            return;
+        }
         QListView::wheelEvent(event);
         return;
     }
-    auto *bar = verticalScrollBar();
     if (!m_scroll) {
         m_scroll = new QVariantAnimation(this);
         m_scroll->setDuration(160);
         m_scroll->setEasingCurve(QEasingCurve::OutCubic);
-        connect(m_scroll, &QVariantAnimation::valueChanged, bar, [bar](const QVariant &v) { bar->setValue(qRound(v.toReal())); });
-        connect(bar, &QScrollBar::sliderPressed, m_scroll, &QVariantAnimation::stop);
+        connect(m_scroll, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+            (m_joinedScroll ? m_joinedScroll : verticalScrollBar())->setValue(qRound(value.toReal()));
+        });
+        connect(verticalScrollBar(), &QScrollBar::sliderPressed, m_scroll, &QVariantAnimation::stop);
     }
     const int from = m_scroll->state() == QAbstractAnimation::Running ? m_scroll->endValue().toInt() : bar->value();
     const int delta = qRound(event->angleDelta().y() / 120.0 * QApplication::wheelScrollLines() * bar->singleStep());
     const int target = std::clamp(from - delta, bar->minimum(), bar->maximum());
+    if (m_joinedScroll && target == bar->value()) { event->ignore(); return; }
     m_scroll->stop();
     m_scroll->setStartValue(bar->value());
     m_scroll->setEndValue(target);
     m_scroll->start();
     event->accept();
+}
+
+void NewProfileList::setJoinedScrollBar(QScrollBar *bar) {
+    if (m_joinedScroll == bar) return;
+    if (m_scroll) m_scroll->stop();
+    if (m_joinedScroll) disconnect(m_joinedScroll, nullptr, this, nullptr);
+    m_joinedScroll = bar;
+    if (bar) connect(bar, &QScrollBar::sliderPressed, this, [this] { if (m_scroll) m_scroll->stop(); });
+    setVerticalScrollBarPolicy(bar ? Qt::ScrollBarAlwaysOff : Qt::ScrollBarAsNeeded);
 }
 
 void NewProfileList::dropEvent(QDropEvent *event) {
@@ -1883,10 +1894,14 @@ NewHome::NewHome(MainWindow *window) : QWidget(nullptr), mw(window) {
     root->setSpacing(0);
     m_titleBar = new NewTitleBar(this);
     root->addWidget(m_titleBar);
+#ifdef Q_OS_WIN
+    m_titleBar->hide();
+#endif
     m_contentScroll = new QScrollArea(this);
     m_contentScroll->setFrameShape(QFrame::NoFrame);
     m_contentScroll->viewport()->setAutoFillBackground(false);
     m_contentScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_contentScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_contentScroll->setWidgetResizable(true);
     auto *content = new QWidget;
     m_columns = new QHBoxLayout(content);
@@ -2095,7 +2110,28 @@ void NewHome::buildBody(QVBoxLayout *body) {
     m_notice->hide();
     serversLayout->addWidget(m_notice);
 
-    // The focused group's header above the list, so that only the servers scroll.
+    auto *row = new QHBoxLayout;
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(0);
+    m_profileColumn = new QWidget(servers);
+    m_profileColumn->installEventFilter(this);
+    auto *column = new QVBoxLayout(m_profileColumn);
+    column->setContentsMargins(0, 0, 0, 0);
+    column->setSpacing(0);
+    row->addWidget(m_profileColumn, 1);
+    m_subscriptionScroll = new QScrollBar(Qt::Vertical, servers);
+    m_subscriptionScroll->hide();
+    row->addWidget(m_subscriptionScroll);
+    serversLayout->addLayout(row, 1);
+
+    m_subscriptionClip = new QWidget(m_profileColumn);
+    m_subscriptionClip->installEventFilter(this);
+    column->addWidget(m_subscriptionClip);
+    m_subscriptionHeader = new QWidget(m_subscriptionClip);
+    m_subscriptionHeader->installEventFilter(this);
+    auto *subscription = new QVBoxLayout(m_subscriptionHeader);
+    subscription->setContentsMargins(0, 0, 0, 0);
+    subscription->setSpacing(0);
     auto *title = new QHBoxLayout;
     title->setContentsMargins(12, 4, 0, 0);
     title->setSpacing(0);
@@ -2114,7 +2150,6 @@ void NewHome::buildBody(QVBoxLayout *body) {
     title->addWidget(m_groupHeading, 1);
     m_groupHeading->setAccessibleName(T("Groups"));
     (new QFocusFrame(m_groupHeading))->setWidget(m_groupHeading);
-    m_subscriptionTitle = title;
     const auto action = [this, title](const QString &icon, const QString &tip, const std::function<void()> &callback) {
         auto *button = new NewTile(NewTile::Icon);
         button->setFlat(true);
@@ -2130,7 +2165,7 @@ void NewHome::buildBody(QVBoxLayout *body) {
     // The desktop has a speed test the mobile app lacks: it sits beside the ping test.
     action("speedtest", T("Speed test"), [this] { mw->ui->actionSpeedtest_Group->trigger(); });
     m_groupMore = action("more", T("More"), [this] { showGroupMenu(); });
-    serversLayout->addLayout(title);
+    subscription->addLayout(title);
     m_routeLine = label({}, 11, true);
     m_routeBox = new QWidget;
     auto *routeRow = new QHBoxLayout(m_routeBox);
@@ -2151,7 +2186,7 @@ void NewHome::buildBody(QVBoxLayout *body) {
     m_routeLine->setWordWrap(true);
     m_routeLine->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_routeLine->installEventFilter(this);
-    serversLayout->addWidget(m_routeBox);
+    subscription->addWidget(m_routeBox);
 
     m_traffic = new QWidget;
     auto *traffic = new QHBoxLayout(m_traffic);
@@ -2189,16 +2224,16 @@ void NewHome::buildBody(QVBoxLayout *body) {
     traffic->addWidget(info);
     traffic->addWidget(bar, 1);
     traffic->addWidget(m_support);
-    serversLayout->addWidget(m_traffic);
+    subscription->addWidget(m_traffic);
     m_expiry = label({}, 11, true);
     m_expiry->setContentsMargins(14, 0, 14, 8);
-    serversLayout->addWidget(m_expiry);
+    subscription->addWidget(m_expiry);
     m_announce = label({}, 12, true);
     m_announce->setWordWrap(true);
     m_announce->setContentsMargins(14, 0, 14, 10);
     m_announce->setCursor(Qt::PointingHandCursor);
     m_announce->installEventFilter(this);
-    serversLayout->addWidget(m_announce);
+    subscription->addWidget(m_announce);
 
     m_search = new QLineEdit;
     m_search->setPlaceholderText(T("Search by name"));
@@ -2211,7 +2246,7 @@ void NewHome::buildBody(QVBoxLayout *body) {
     auto *searchBox = new QHBoxLayout;
     searchBox->setContentsMargins(5, 0, 5, 8);
     searchBox->addWidget(m_search);
-    serversLayout->addLayout(searchBox);
+    subscription->addLayout(searchBox);
 
     m_list = new NewProfileList(this);
     m_list->setModel(mw->profilesFilterModel);
@@ -2233,7 +2268,16 @@ void NewHome::buildBody(QVBoxLayout *body) {
     connect(m_list, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
         mw->ui->menu_server->popup(m_list->viewport()->mapToGlobal(pos));
     });
-    serversLayout->addWidget(m_list, 1);
+    column->addWidget(m_list, 1);
+    connect(m_subscriptionScroll, &QScrollBar::valueChanged, this, &NewHome::updateSubscriptionScroll);
+    connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int value) {
+        if (!m_updatingSubscriptionScroll && Configs::dataManager->settingsRepo->new_layout_join_subscription &&
+            (value > 0 || m_subscriptionScroll->value() > m_subscriptionHeader->height()))
+            m_subscriptionScroll->setValue(m_subscriptionHeader->height() + value);
+    });
+    connect(m_list->verticalScrollBar(), &QScrollBar::rangeChanged, this, [this] {
+        if (!m_updatingSubscriptionScroll) QTimer::singleShot(0, this, [this] { updateSubscriptionScroll(); });
+    });
 
     m_empty = new QWidget;
     auto *imports = new QHBoxLayout(m_empty);
@@ -2552,7 +2596,7 @@ void NewHome::showGroupPicker() {
     layout->addLayout(actions);
     popup->setFixedWidth(std::max({440, m_chip->width() + 56, buttonsWidth}));
     popup->adjustSize();
-    QWidget *anchor = m_chipBox->isVisible() ? static_cast<QWidget *>(m_chip) : m_groupHeading;
+    QWidget *anchor = m_chip;
     guardReopen(popup, anchor);
     popup->showAt(anchor->mapToGlobal(QPoint(0, anchor->height() + 6)));
 }
@@ -2933,8 +2977,7 @@ QSize NewHome::windowMinimum() {
     layout()->activate();
     const auto outer = layout()->contentsMargins();
     QSize size = m_columns->minimumSize() + QSize(outer.left() + outer.right(),
-        outer.top() + outer.bottom() + m_titleBar->height());
-    size.rwidth() += m_contentScroll->verticalScrollBar()->sizeHint().width();
+        outer.top() + outer.bottom() + (m_titleBar->isHidden() ? 0 : m_titleBar->height()));
     size.setHeight(std::max(size.height(), 480));
     if (const auto *display = screen())
         size.setHeight(std::min(size.height(), display->availableGeometry().height() * 3 / 4));
@@ -2947,9 +2990,32 @@ QSize NewHome::windowMinimum() {
 void NewHome::updateCentering() {
     const bool centered = Configs::dataManager->settingsRepo->new_layout_panel == QLatin1String("center");
     const int contentWidth = std::max(480, m_bodyLayout->minimumSize().width());
-    const int scrollBarWidth = m_contentScroll->verticalScrollBar()->sizeHint().width();
-    const int margin = centered ? std::max(0, (m_contentScroll->width() - scrollBarWidth - contentWidth) / 2) : 0;
+    const int margin = centered ? std::max(0, (m_contentScroll->width() - contentWidth) / 2) : 0;
     m_columns->setContentsMargins(margin, 0, margin, 0);
+}
+
+void NewHome::updateSubscriptionScroll() {
+    if (!m_list || m_updatingSubscriptionScroll) return;
+    const QScopedValueRollback guard(m_updatingSubscriptionScroll, true);
+    const bool joined = Configs::dataManager->settingsRepo->new_layout_join_subscription;
+    const int width = m_profileColumn->width();
+    auto *layout = m_subscriptionHeader->layout();
+    const int height = std::max(0, layout->hasHeightForWidth() ? layout->heightForWidth(width) : layout->sizeHint().height());
+    const int rows = m_list->model()->rowCount();
+    const int rowHeight = rows ? m_list->sizeHintForRow(0) : 0;
+    const int page = m_profileColumn->height();
+    const int maximum = joined ? std::max(0, height + rows * rowHeight - page) : 0;
+    m_list->setJoinedScrollBar(joined ? m_subscriptionScroll : nullptr);
+    m_subscriptionScroll->setPageStep(page);
+    m_subscriptionScroll->setSingleStep(m_list->verticalScrollBar()->singleStep());
+    m_subscriptionScroll->setRange(0, maximum);
+    m_subscriptionScroll->setVisible(maximum > 0);
+    const int offset = std::min(height, m_subscriptionScroll->value());
+    m_subscriptionClip->setFixedHeight(height - offset);
+    m_subscriptionClip->setVisible(offset < height);
+    m_subscriptionHeader->setGeometry(0, -offset, width, height);
+    m_profileColumn->layout()->activate();
+    if (joined) m_list->verticalScrollBar()->setValue(m_subscriptionScroll->value() - offset);
 }
 
 void NewHome::applyArrangement() {
@@ -2971,7 +3037,6 @@ void NewHome::applyArrangement() {
     // Inside it the order never changes: header, card, the connect block, room, the status lines.
     m_sideLayout->removeWidget(m_header);
     m_sideLayout->removeWidget(m_chipBox);
-    m_bodyLayout->removeWidget(m_chipBox);
     m_sideLayout->removeWidget(m_controls);
     for (int i = m_sideLayout->count() - 1; i >= 0; --i) if (m_sideLayout->itemAt(i)->spacerItem()) delete m_sideLayout->takeAt(i);
     int at = 0;
@@ -2981,17 +3046,7 @@ void NewHome::applyArrangement() {
     // Beside the servers the room takes the panel's height; centered, the panel keeps only what it needs.
     if (!centered) m_sideLayout->insertStretch(at++, 1);
     m_chipBox->layout()->setContentsMargins(0, 14, 0, 0);
-    const bool hiddenChip = settings.new_layout_chip == QLatin1String("hidden");
-    m_chipBox->setVisible(!hiddenChip);
-    m_groupHeading->setFocusPolicy(hiddenChip ? Qt::StrongFocus : Qt::NoFocus);
-    if (hiddenChip) {
-        m_chipBox->layout()->removeWidget(m_add);
-        m_subscriptionTitle->insertWidget(m_subscriptionTitle->indexOf(m_refresh), m_add);
-    } else {
-        m_subscriptionTitle->removeWidget(m_add);
-        qobject_cast<QHBoxLayout *>(m_chipBox->layout())->addWidget(m_add);
-    }
-    m_add->show();
+    updateSubscriptionScroll();
     m_orb->setFixedHeight(settings.new_layout_size == QLatin1String("compact") ? 148 : 190);
     // The window's smallest size follows the arrangement.
     if (m_attached) mw->applyTopBarMetrics();
@@ -3001,6 +3056,7 @@ void NewHome::setArranging(bool on) {
     if (!on) { delete m_arrange; m_arrange = nullptr; applyArrangement(); return; }
     if (m_arrange) return;
     auto &settings = *Configs::dataManager->settingsRepo;
+    m_subscriptionScroll->setValue(0);
     const auto set = [this](QString &field, const QString &value) {
         field = value;
         Configs::dataManager->settingsRepo->Save();
@@ -3016,12 +3072,15 @@ void NewHome::setArranging(bool on) {
     });
     overlay->rebuild = [=, &settings] {
         overlay->clearButtons();
-        const bool hiddenChip = settings.new_layout_chip == QLatin1String("hidden");
-        overlay->addButton(hiddenChip ? m_groupHeading : m_chipBox, hiddenChip ? QStringLiteral("+") : QStringLiteral("×"), hiddenChip ? T("Restore") : T("Hide"),
-                           [=, &settings] { set(settings.new_layout_chip, hiddenChip ? QStringLiteral("top") : QStringLiteral("hidden")); });
         const bool compact = settings.new_layout_size == QLatin1String("compact");
         overlay->addButton(m_orb, compact ? QStringLiteral("⤢") : QStringLiteral("⤡"), T("Change size"),
                            [=, &settings] { set(settings.new_layout_size, compact ? QStringLiteral("normal") : QStringLiteral("compact")); });
+        overlay->addButton(m_subscriptionClip, settings.new_layout_join_subscription ? QStringLiteral("↥") : QStringLiteral("↕"),
+                           T("Scroll subscription info with servers"), [this, &settings] {
+            settings.new_layout_join_subscription = !settings.new_layout_join_subscription;
+            settings.Save();
+            updateSubscriptionScroll();
+        });
     };
     overlay->rebuild();
     overlay->setGeometry(rect());
@@ -3037,7 +3096,7 @@ void NewHome::setArranging(bool on) {
 void NewHome::resizeEvent(QResizeEvent *event) {
     QWidget::resizeEvent(event);
     updateCentering();
-    if (NewStyle::active()) NewStyle::roundCorners(window(), false);
+    if (window()->windowFlags() & Qt::FramelessWindowHint) NewStyle::roundCorners(window(), false);
 }
 
 void NewHome::paintEvent(QPaintEvent *) {
@@ -3046,7 +3105,7 @@ void NewHome::paintEvent(QPaintEvent *) {
 }
 
 Qt::Edges NewHome::edgesAt(const QPoint &pos) const {
-    if (window()->isMaximized() || window()->isFullScreen()) return {};
+    if (!(window()->windowFlags() & Qt::FramelessWindowHint) || window()->isMaximized() || window()->isFullScreen()) return {};
     const int grip = 6;
     Qt::Edges edges;
     if (pos.x() <= grip) edges |= Qt::LeftEdge;
@@ -3075,7 +3134,7 @@ void NewHome::mousePressEvent(QMouseEvent *e) {
     if (e->button() == Qt::LeftButton && window()->windowHandle()) {
         if (edges) window()->windowHandle()->startSystemResize(edges);
         // The empty margins move the window like the title bar.
-        else if (e->pos().y() < 60) window()->windowHandle()->startSystemMove();
+        else if ((window()->windowFlags() & Qt::FramelessWindowHint) && e->pos().y() < 60) window()->windowHandle()->startSystemMove();
     }
     QWidget::mousePressEvent(e);
 }
@@ -3086,13 +3145,16 @@ void NewHome::leaveEvent(QEvent *e) {
 }
 
 bool NewHome::eventFilter(QObject *watched, QEvent *event) {
-    if (m_groupHeading && watched == m_groupHeading && (m_groupHeading->focusPolicy() & Qt::TabFocus) &&
-        event->type() == QEvent::KeyPress) {
-        const auto *key = static_cast<QKeyEvent *>(event);
-        if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter || key->key() == Qt::Key_Space) {
-            if (!key->isAutoRepeat()) showGroupPicker();
-            return true;
-        }
+    if ((watched == m_profileColumn && event->type() == QEvent::Resize) ||
+        (watched == m_subscriptionHeader && event->type() == QEvent::LayoutRequest)) {
+        // Recalculate after the new width and the wrapped labels have been laid out.
+        QTimer::singleShot(0, this, [this] { updateSubscriptionScroll(); });
+    }
+    if (watched == m_subscriptionClip && event->type() == QEvent::Wheel &&
+        Configs::dataManager->settingsRepo->new_layout_join_subscription) {
+        event->ignore();
+        QApplication::sendEvent(m_list->viewport(), event);
+        return event->isAccepted();
     }
     const bool subscription = watched == m_chip || watched == m_groupHeading || watched == m_groupName || watched == m_groupDate;
     if (subscription && (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseMove || event->type() == QEvent::MouseButtonRelease)) {
@@ -3158,6 +3220,8 @@ void MainWindow::applyInterfaceStyle(bool animated) {
         rootStack->addWidget(classic);
         setCentralWidget(rootStack);
     }
+    setAutoFillBackground(!wantNew);
+    rootStack->setAutoFillBackground(!wantNew);
     // The hidden page must not hold the window to its own minimum: the new one goes down to a phone's width.
     if (QWidget *classic = rootStack->widget(0)) {
         classic->setSizePolicy(wantNew ? QSizePolicy::Ignored : QSizePolicy::Preferred, wantNew ? QSizePolicy::Ignored : QSizePolicy::Preferred);
@@ -3191,6 +3255,9 @@ void MainWindow::applyInterfaceStyle(bool animated) {
 }
 
 void MainWindow::syncWindowFrame() {
+#ifdef Q_OS_WIN
+    NewStyle::themeFrame(this);
+#else
     const bool frameless = NewStyle::active();
     if (bool(windowFlags() & Qt::FramelessWindowHint) == frameless) return;
     // Changing the frame re-creates the window and would hide an open dialog with it: after the dialog closes.
@@ -3206,6 +3273,7 @@ void MainWindow::syncWindowFrame() {
     if (!frameless) clearMask();
     if (shown) maximized ? showMaximized() : show();
     if (frameless) NewStyle::roundCorners(this, false);
+#endif
 }
 
 void MainWindow::arrangeWindow() {
