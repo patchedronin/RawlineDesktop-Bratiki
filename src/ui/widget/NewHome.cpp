@@ -579,8 +579,8 @@ void NewStyle::themeFrame(QWidget *window) {
     set(hwnd, 35 /* DWMWA_CAPTION_COLOR */, &caption, sizeof caption);
     set(hwnd, 36 /* DWMWA_TEXT_COLOR */, &ink, sizeof ink);
     set(hwnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
-    const DWORD small = 3; // DWMWCP_ROUNDSMALL
-    set(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &small, sizeof small);
+    const DWORD cornerPreference = 3; // DWMWCP_ROUNDSMALL
+    set(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPreference, sizeof cornerPreference);
 #else
     Q_UNUSED(window)
 #endif
