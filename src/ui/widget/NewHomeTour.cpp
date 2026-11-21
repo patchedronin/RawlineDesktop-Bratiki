@@ -259,8 +259,15 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             home()->showMoreMenu();
             QApplication::processEvents();
             const auto *popup = QApplication::activePopupWidget();
-            if (!popup || popup->mask().isEmpty() || popup->mask().contains(QPoint(0, 0)))
-                qFatal("The menu has an uncovered square corner");
+            if (!popup || popup->mask().boundingRect() != popup->rect() || popup->mask().contains(QPoint(0, 0)))
+                qFatal("The menu mask is clipped or has an uncovered square corner");
+        })};
+        s << std::pair{QStringLiteral("settings-menu"), std::function<void()>([mw] {
+            mw->ui->menu_preferences->popup(mw->mapToGlobal(QPoint(380, 90)));
+            QApplication::processEvents();
+            const auto *popup = QApplication::activePopupWidget();
+            if (!popup || popup->mask().boundingRect() != popup->rect() || popup->mask().contains(QPoint(0, 0)))
+                qFatal("The settings menu mask does not match its visible size");
         })};
         s << std::pair{QStringLiteral("add-menu"), std::function<void()>([home] { home()->showAddMenu(); })};
         s << std::pair{QStringLiteral("group-menu"), std::function<void()>([home] { home()->showGroupMenu(); })};
@@ -512,6 +519,8 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 check(settings.isVisible() && hasCaption(settings.winId()) && hasCaption(mainId) && mw->winId() == mainId,
                       "System lost its native frame while settings remained open");
                 check(mw->centralWidget()->autoFillBackground() && mw->mask().isEmpty(), "classic background is not opaque");
+                check(mw->centralWidget()->palette().color(QPalette::Window) == qApp->palette().color(QPalette::Window),
+                      "Rawline background survived the switch to System");
                 tour->shoot(QStringLiteral("system-with-settings-open"));
             }
             themeManager()->ApplyTheme(theme);

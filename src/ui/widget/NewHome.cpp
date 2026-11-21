@@ -403,8 +403,12 @@ namespace {
             }
 #endif
             if (!NewStyle::active()) return false;
-            if ((event->type() == QEvent::Show || event->type() == QEvent::Resize) && widget->isWindow() && qobject_cast<QMenu *>(widget))
-                clipRoundedWindow(widget, menuRadius);
+            if ((event->type() == QEvent::Show || event->type() == QEvent::Resize) && widget->isWindow() && qobject_cast<QMenu *>(widget)) {
+                // QMenu sizes to its actions after its initial window events.
+                QTimer::singleShot(0, widget, [widget] {
+                    if (NewStyle::active() && widget->isVisible()) clipRoundedWindow(widget, menuRadius);
+                });
+            }
             if (widget->property("newFrame").toBool()) {
                 // The framed dialog's body, its title bar's place and its edges for resizing.
                 if (event->type() == QEvent::Paint && !m_painting) {
@@ -436,6 +440,8 @@ namespace {
             }
             if (event->type() == QEvent::Paint) {
                 if (m_painting || !outlined(widget)) return false;
+                if (widget->isWindow() && qobject_cast<QMenu *>(widget) && widget->mask().boundingRect() != widget->rect())
+                    clipRoundedWindow(widget, menuRadius);
                 // The control paints itself first; the outline goes over it within the same paint.
                 m_painting = true;
                 watched->event(event);
@@ -3423,7 +3429,7 @@ void MainWindow::applyInterfaceStyle(bool animated) {
     setAutoFillBackground(!wantNew);
     rootStack->setAutoFillBackground(!wantNew);
 #ifdef Q_OS_WIN
-    auto framePalette = palette();
+    auto framePalette = qApp->palette();
     if (wantNew) framePalette.setColor(QPalette::Window, NewStyle::background());
     centralWidget()->setPalette(framePalette);
     centralWidget()->setAutoFillBackground(true);
@@ -3431,6 +3437,7 @@ void MainWindow::applyInterfaceStyle(bool animated) {
     // The hidden page must not hold the window to its own minimum: the new one goes down to a phone's width.
     if (QWidget *classic = rootStack->widget(0)) {
         classic->setSizePolicy(wantNew ? QSizePolicy::Ignored : QSizePolicy::Preferred, wantNew ? QSizePolicy::Ignored : QSizePolicy::Preferred);
+        classic->setAutoFillBackground(!wantNew);
     }
     if (wantNew) {
         if (!newHome) {
