@@ -2683,8 +2683,9 @@ namespace {
     class ArrangeOverlay : public QWidget {
     public:
         struct Block { QPointer<QWidget> widget; std::function<void(QPoint)> drop; std::function<void()> twice; };
-        struct Button { NewTile *tile; QPointer<QWidget> anchor; int slot = 0; };
-        ArrangeOverlay(QWidget *parent, std::function<void()> done, std::function<void()> tutorial) : QWidget(parent) {
+        struct Button { NewTile *tile; QPointer<QWidget> anchor; };
+        ArrangeOverlay(QWidget *parent, QScrollArea *scroll, std::function<void()> done, std::function<void()> tutorial)
+            : QWidget(parent), m_contentScroll(scroll) {
             m_done = new NewTile(NewTile::Pill, this);
             m_done->setText(QCoreApplication::translate("NewHome", "Done"));
             m_done->setFixedSize(std::max(120, m_done->sizeHint().width()), 40);
@@ -2698,22 +2699,22 @@ namespace {
             timer->start(60);
             setMouseTracking(true);
             parent->installEventFilter(this);
+            connect(scroll->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] { place(); update(); });
         }
         // [twice]: what a double click on the block changes, as two taps do in the mobile editor.
         void addBlock(QWidget *widget, std::function<void(QPoint)> drop, std::function<void()> twice = {}) { m_blocks << Block{widget, std::move(drop), std::move(twice)}; }
-        // A round button in [anchor]'s top right corner, [slot] buttons to the left of it.
-        void addButton(QWidget *anchor, const QString &glyph, const QString &tip, std::function<void()> action, int slot = 0) {
+        void addButton(QWidget *anchor, const QString &glyph, const QString &tip, std::function<void()> action) {
             auto *tile = new NewTile(NewTile::Pill, this);
+            tile->setObjectName(QStringLiteral("arrangeBlockButton"));
             tile->setText(glyph);
             tile->setToolTip(tip);
             tile->setFixedSize(30, 30);
             connect(tile, &QAbstractButton::clicked, this, [this, action = std::move(action)] { action(); rebuild(); });
-            tile->show();
-            m_buttons << Button{tile, anchor, slot};
+            m_buttons << Button{tile, anchor};
             place();
         }
         void clearButtons() {
-            for (auto &button : m_buttons) button.tile->deleteLater();
+            for (auto &button : m_buttons) { button.tile->hide(); button.tile->deleteLater(); }
             m_buttons.clear();
         }
         std::function<void()> rebuild = [] {};
@@ -2741,6 +2742,11 @@ namespace {
             }
         }
         void resizeEvent(QResizeEvent *) override { place(); }
+        void wheelEvent(QWheelEvent *event) override {
+            if (m_dragged >= 0) return;
+            event->ignore();
+            QApplication::sendEvent(m_contentScroll->viewport(), event);
+        }
         bool eventFilter(QObject *watched, QEvent *event) override {
             if (watched == parentWidget() && event->type() == QEvent::Resize) setGeometry(parentWidget()->rect());
             return false;
@@ -2803,13 +2809,21 @@ namespace {
         }
     private:
         QRect frameOf(const Block &block) const { return QRect(mapFromGlobal(block.widget->mapToGlobal(QPoint())), block.widget->size()); }
+        QRect visibleAnchor(QWidget *anchor) const {
+            QRect visible = rect();
+            for (auto *widget = anchor; widget && widget != parentWidget(); widget = widget->parentWidget()) {
+                if (widget->isHidden()) return {};
+                visible &= QRect(widget->mapTo(parentWidget(), QPoint()), widget->size());
+            }
+            return visible.adjusted(5, 5, -5, -5);
+        }
         void place() {
             for (const auto &button : m_buttons) {
-                if (!button.anchor) { button.tile->hide(); continue; }
-                const QRect frame(mapFromGlobal(button.anchor->mapToGlobal(QPoint())), button.anchor->size());
-                button.tile->move(frame.right() - button.tile->width() + 8 - button.slot * (button.tile->width() + 6), frame.top() - 10);
-                button.tile->setVisible(true);
-                button.tile->raise();
+                const QRect frame = button.anchor ? visibleAnchor(button.anchor) : QRect();
+                const QSize size = button.tile->size();
+                const bool fits = frame.width() >= size.width() && frame.height() >= size.height();
+                button.tile->setVisible(fits);
+                if (fits) button.tile->move(frame.right() - size.width() + 1, frame.top());
             }
             m_done->move(width() - m_done->width() - 24, height() - m_done->height() - 24);
             m_tutorial->move(24, height() - m_tutorial->height() - 24);
@@ -2818,6 +2832,7 @@ namespace {
         }
         QList<Block> m_blocks;
         QList<Button> m_buttons;
+        QScrollArea *m_contentScroll;
         NewTile *m_done;
         NewTile *m_tutorial;
         int m_phase = 0;
@@ -3062,7 +3077,7 @@ void NewHome::setArranging(bool on) {
         Configs::dataManager->settingsRepo->Save();
         applyArrangement();
     };
-    auto *overlay = new ArrangeOverlay(this, [this] { setArranging(false); }, [this] { new ArrangeTutorial(this, {}); });
+    auto *overlay = new ArrangeOverlay(this, m_contentScroll, [this] { setArranging(false); }, [this] { new ArrangeTutorial(this, {}); });
     // The panel is the one block: dropped in the left, middle or right third of the window, it stands there and
     // the servers and tabs take the rest. The connect button only changes size.
     // Called on every move of the drag: only a change of third saves and rearranges.

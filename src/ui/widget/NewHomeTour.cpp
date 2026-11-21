@@ -289,6 +289,28 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 for (const auto *tab : home()->m_tabs)
                     if (tab->width() < metrics.horizontalAdvance(tab->text()) + 20)
                         qFatal("A full tab title does not fit the minimum window in %s", qPrintable(panel));
+                h->setArranging(true);
+                QApplication::processEvents();
+                const auto buttons = h->m_arrange->findChildren<QAbstractButton *>(QStringLiteral("arrangeBlockButton"));
+                if (buttons.size() != 2) qFatal("Layout editor is missing its block controls");
+                const QList<QWidget *> anchors{h->m_orb, h->m_subscriptionClip};
+                auto *outerScroll = h->m_contentScroll->verticalScrollBar();
+                bool reached[2] = {};
+                for (const int offset : {0, outerScroll->maximum() / 2, outerScroll->maximum()}) {
+                    outerScroll->setValue(offset);
+                    QApplication::processEvents();
+                    for (int i = 0; i < 2; ++i) {
+                        if (!buttons[i]->isVisible()) continue;
+                        reached[i] = true;
+                        const auto allowed = bounds(anchors[i]) & bounds(h->m_contentScroll->viewport()) & h->rect();
+                        if (!allowed.contains(bounds(buttons[i]))) qFatal("A layout control escaped its block");
+                    }
+                    if (buttons[0]->isVisible() && buttons[1]->isVisible() && buttons[0]->geometry().intersects(buttons[1]->geometry()))
+                        qFatal("Layout controls overlap");
+                }
+                if (!reached[0] || !reached[1]) qFatal("A layout control cannot be reached after scrolling");
+                outerScroll->setValue(0);
+                h->setArranging(false);
             }
         })};
         s << std::pair{QString(), std::function<void()>([home, mw] {
