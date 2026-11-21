@@ -56,7 +56,7 @@ class InterfaceRegressions(unittest.TestCase):
 
     def test_windows_and_menus_have_no_black_corners(self):
         text = read("src/ui/widget/NewHome.cpp")
-        self.assertIn("clipRoundedWindow(widget, 9);", text)
+        self.assertIn("clipRoundedWindow(widget, menuRadius);", text)
         self.assertIn("if (auto *menu = qobject_cast<QMenu *>(widget)) menu->clearMask();", text)
         # A clear fill on a child of the sheet cuts a hole down to the desktop.
         picker = text.split("void NewHome::showGroupPicker()", 1)[1].split("\n}\n", 1)[0]

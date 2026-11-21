@@ -159,8 +159,9 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             Configs::dataManager->settingsRepo->new_layout_panel = QStringLiteral("left");
             themeManager()->ApplyTheme(theme);
             mw->showNormal();
-            mw->resize(1000, 700);
-            mw->move(20, 20);
+            const auto area = mw->screen()->availableGeometry().adjusted(12, 12, -12, -12);
+            mw->resize(QSize(1000, 700).boundedTo(area.size() - (mw->frameSize() - mw->size())));
+            mw->move(area.topLeft());
             mw->raise();
             mw->activateWindow();
         })};
@@ -271,6 +272,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
         s << std::pair{QStringLiteral("arrange"), std::function<void()>([home] { home()->selectTab(0, false); home()->setArranging(true); })};
         s << std::pair{QStringLiteral("arrange-plain"), std::function<void()>([home] {
             for (auto *w : home()->findChildren<QWidget *>(QStringLiteral("arrangeTutorial"))) w->close();
+            Configs::dataManager->settingsRepo->new_layout_tutorial = QStringLiteral("seen");
         })};
         s << std::pair{QStringLiteral("narrow-center"), std::function<void()>([home, mw, dir] {
             home()->setArranging(false);
@@ -282,7 +284,8 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 if (home()->m_tabsBar->width() >= home()->fullTabBarWidth() &&
                     std::any_of(home()->m_tabs.cbegin(), home()->m_tabs.cend(), [](const auto *tab) { return tab->compactTab(); }))
                     qFatal("The full tab titles did not return on widening");
-                mw->resize(380, std::min(760, mw->screen()->availableGeometry().height() - 24));
+                const int frameHeight = mw->frameSize().height() - mw->height();
+                mw->resize(380, std::min(760, mw->screen()->availableGeometry().height() - 24 - frameHeight));
                 QApplication::processEvents();
                 mw->applyTopBarMetrics();
                 QApplication::processEvents();
@@ -354,7 +357,8 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
         s << std::pair{QString(), std::function<void()>([home, mw] {
             Configs::dataManager->settingsRepo->new_layout_panel = QStringLiteral("left");
             home()->applyArrangement();
-            mw->resize(1000, 700);
+            const auto area = mw->screen()->availableGeometry().adjusted(12, 12, -12, -12);
+            mw->resize(QSize(1000, 700).boundedTo(area.size() - (mw->frameSize() - mw->size())));
         })};
         for (const auto &[name, a] : {std::pair{"add-input", mw->ui->menu_add_from_input}, std::pair{"manage-groups", mw->ui->menu_manage_groups},
                  std::pair{"new-group", mw->ui->actionAdd_New_Group}, std::pair{"edit-group", mw->ui->actionEdit_Group},

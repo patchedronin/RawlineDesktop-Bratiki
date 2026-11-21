@@ -218,6 +218,7 @@ namespace {
     // A stylesheet draws a round border in pieces that do not join cleanly, so the sheet keeps the border clear
     // and each control gets its outline here, as one smooth stroke over what it painted.
     bool g_keyFocus = false;
+    constexpr int menuRadius = 9;
 
     bool outlined(const QWidget *w) {
         return qobject_cast<const QPushButton *>(w) || qobject_cast<const QLineEdit *>(w) || qobject_cast<const QComboBox *>(w) ||
@@ -270,7 +271,7 @@ namespace {
         } else if (qobject_cast<QProgressBar *>(w)) {
             stroke(r, 8, rim);
         } else if (qobject_cast<QMenu *>(w)) {
-            stroke(r, 16, NewStyle::outline());
+            stroke(r.adjusted(1, 1, -1, -1), menuRadius - 1, NewStyle::outline());
         } else if (auto *bar = qobject_cast<QTabBar *>(w)) {
             for (int i = 0; i < bar->count(); ++i) {
                 if (bar->isTabVisible(i)) stroke(QRectF(bar->tabRect(i)).adjusted(2, 2, -2, -2), 12, i == bar->currentIndex() ? withAlpha(ink, 90) : rim);
@@ -352,7 +353,7 @@ namespace {
             if (event->type() == QEvent::Show) NewStyle::themeFrame(widget);
             if (!NewStyle::active()) return false;
             if ((event->type() == QEvent::Show || event->type() == QEvent::Resize) && widget->isWindow() && qobject_cast<QMenu *>(widget))
-                clipRoundedWindow(widget, 9);
+                clipRoundedWindow(widget, menuRadius);
             if (widget->property("newFrame").toBool()) {
                 // The framed dialog's body, its title bar's place and its edges for resizing.
                 if (event->type() == QEvent::Paint && !m_painting) {
@@ -740,7 +741,7 @@ QString NewStyle::styleSheet() {
         "QMainWindow, QDialog { background: %1; }\n"
         "QDialog[newFrame=\"true\"] { background: transparent; }\n"
         "QToolTip { background: %2; color: %3; border: 1px solid %4; padding: 6px 10px; }\n"
-        "QMenu { background: %5; border: 1px solid %4; padding: 6px; }\n"
+        "QMenu { background: %5; border: 1px solid transparent; padding: 6px; }\n"
         "QMenu::item { padding: 7px 26px 7px 14px; border-radius: 12px; background: transparent; color: %3; }\n"
         "QMenu::item:selected { background: %6; }\n"
         "QMenu::item:disabled { color: %7; }\n"
