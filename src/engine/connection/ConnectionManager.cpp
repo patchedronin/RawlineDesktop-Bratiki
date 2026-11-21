@@ -28,6 +28,7 @@
 #include <QHostAddress>
 #include <QJsonObject>
 #include <QMutexLocker>
+#include <QThread>
 
 #include <algorithm>
 #include <functional>
@@ -87,6 +88,13 @@ namespace Engine {
         ++m_geoRetryToken;
         if (Configs::dataManager->settingsRepo->prepare_exit) {
             emit startFinished(request.serial, request.profileId, StartOutcome::Exiting, {});
+            return;
+        }
+        if (m_profileConnecting || m_startCancelRpcPending) {
+            if (m_startAfterCancel.profileId >= 0)
+                emit startFinished(m_startAfterCancel.serial, m_startAfterCancel.profileId, StartOutcome::Superseded, {});
+            m_startAfterCancel = request;
+            if (m_profileConnecting) cancelStartingProfile();
             return;
         }
 
@@ -222,10 +230,22 @@ namespace Engine {
                     req.routed_extra_processes.push_back(std::move(transport));
                 }
             }
+            if (m_cancelStarting) {
+                finish(StartOutcome::Superseded, {});
+                return false;
+            }
             bool rpcOK;
             const QString error = API::defaultClient->Start(&rpcOK, req);
             // Queued ahead of every dialog below, so none of them can be shown over the prompt.
             runOnUiThread([slowStart] { slowStart.dismiss(); });
+            if (m_cancelStarting) {
+                if (rpcOK && error.isEmpty()) {
+                    bool stopped;
+                    API::defaultClient->Stop(&stopped);
+                }
+                finish(StartOutcome::Superseded, {});
+                return false;
+            }
             if (!rpcOK) {
                 finish(StartOutcome::CoreUnavailable, {});
                 return false;
@@ -342,11 +362,10 @@ namespace Engine {
             ? policy()->slowOperation(Engine::SlowOperationKind::Start, slowStartMs)
             : Engine::SlowOperation{};
 
-        runOnUiThread([this] {
-            m_profileConnecting = true;
-            syncState();
-            emit busyChanged();
-        });
+        m_cancelStarting = false;
+        m_profileConnecting = true;
+        syncState();
+        emit busyChanged();
 
         runOnNewThread([=, this] {
             const bool switching = runningSnapshot() != nullptr;
@@ -360,7 +379,7 @@ namespace Engine {
             MW_show_log(">>>>>>>> " + MainWindowTr::tr("Starting profile %1").arg(ent->outbound->DisplayTypeAndName()));
             const bool started = profile_start_stage2(slowStart);
             const auto markerAt = MonotonicMs();
-            if (!started) {
+            if (!started && !m_cancelStarting) {
                 MW_show_log("<<<<<<<< " + MainWindowTr::tr("Failed to start profile %1").arg(ent->outbound->DisplayTypeAndName()));
             }
             mu_starting.unlock();
@@ -375,8 +394,36 @@ namespace Engine {
                 } else if (switching) {
                     emit runMarker(markerAt, RunMarker::Stopped, {});
                 }
+                if (m_cancelStarting && runningSnapshot() != nullptr && !m_startCancelRpcPending) {
+                    stop({false, false, true});
+                    return;
+                }
+                startAfterCancellation();
             });
         });
+    }
+
+    void ConnectionManager::cancelStartingProfile() {
+        if (m_cancelStarting.exchange(true)) return;
+        m_startCancelRpcPending = true;
+        runOnNewThread([this] {
+            bool stopped;
+            API::defaultClient->Stop(&stopped);
+            runOnUiThread([this] {
+                m_startCancelRpcPending = false;
+                if (!m_profileConnecting && runningSnapshot() != nullptr) {
+                    stop({false, false, true});
+                    return;
+                }
+                startAfterCancellation();
+            });
+        });
+    }
+
+    void ConnectionManager::startAfterCancellation() {
+        if (m_profileConnecting || m_startCancelRpcPending || m_startAfterCancel.profileId < 0 || m_profileDisconnecting) return;
+        const auto next = std::exchange(m_startAfterCancel, StartRequest{});
+        start(next);
     }
 
     void ConnectionManager::stop(const StopOptions &options) {
@@ -388,6 +435,13 @@ namespace Engine {
         const bool skipTests = options.skipTests;
 
         if (manual) ++m_geoRetryToken;
+        if (manual && !crash && QThread::currentThread() == thread() && (m_profileConnecting || m_startCancelRpcPending)) {
+            if (m_startAfterCancel.profileId >= 0)
+                emit startFinished(m_startAfterCancel.serial, m_startAfterCancel.profileId, StartOutcome::Superseded, {});
+            m_startAfterCancel = {};
+            if (m_profileConnecting) cancelStartingProfile();
+            return;
+        }
         const auto current = runningSnapshot();
         if (current == nullptr) {
             // A crashed profile waits for the restarted core with nothing running; a user stop cancels that.
@@ -479,6 +533,7 @@ namespace Engine {
 
                 mu_stopping.unlock();
                 emit stopFinished(id);
+                startAfterCancellation();
             }, true);
         }, block);
     }

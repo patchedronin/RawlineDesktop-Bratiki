@@ -22,6 +22,7 @@ namespace Stats {
         QString status;
         // Profiles whose traffic counters moved; running ticks only.
         QList<int> creditedIds;
+        QString relaySlots;
     };
 
     // Main thread only: the loops hop to the main thread before calling it.

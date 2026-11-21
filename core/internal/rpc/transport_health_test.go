@@ -149,6 +149,7 @@ func TestTransportHelperProcess(t *testing.T) {
 		User   string `json:"socks_user"`
 		Pass   string `json:"socks_pass"`
 		Folder string `json:"helper_folder"`
+		Hold   bool   `json:"helper_hold"`
 	}
 	if json.Unmarshal(data, &c) != nil {
 		os.Exit(3)
@@ -158,6 +159,10 @@ func TestTransportHelperProcess(t *testing.T) {
 	launches, _ := strconv.Atoi(string(previous))
 	launches++
 	_ = os.WriteFile(counter, []byte(strconv.Itoa(launches)), 0600)
+	if c.Hold {
+		bufio.NewScanner(os.Stdin).Scan()
+		os.Exit(0)
+	}
 	ln, err := net.Listen("tcp", c.SOCKS)
 	if err != nil {
 		os.Exit(4)
@@ -211,6 +216,87 @@ func TestTransportHelperProcess(t *testing.T) {
 	}
 	<-stop
 	os.Exit(0)
+}
+
+func TestQWDTTRelaySlots(t *testing.T) {
+	health := newTransportHealth(true, nil)
+	health.accept("[КЛИЕНТ] Воркеров: 36 (групп: 4, по 9)")
+	health.accept("[READY]")
+	if _, total := health.slots(); total != 0 {
+		t.Fatalf("reported slots without a live measurement: %d", total)
+	}
+	health.accept("[СТАТИСТИКА] Активных: 27 | Трафик: 0.00 МБ")
+	if active, total := health.slots(); active != 27 || total != 36 {
+		t.Fatalf("slots = %d/%d, want 27/36", active, total)
+	}
+	health.accept("[СТАТИСТИКА] Активных: 0 | Трафик: 0.00 МБ")
+	if active, total := health.slots(); active != 0 || total != 36 {
+		t.Fatalf("slots = %d/%d, want 0/36", active, total)
+	}
+}
+
+func TestStopCancelsNativeTransportStartup(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := t.TempDir()
+	name := "olcrtc"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	helper := filepath.Join(folder, name)
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(helper, data, 0700); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	config, _ := json.Marshal(map[string]any{
+		"backend": "olcrtc", "peer": "fixture", "device_id": "cancel-test",
+		"socks": ln.Addr().String(), "socks_user": "cancel-user", "socks_pass": "cancel-pass",
+		"helper_folder": folder, "helper_hold": true,
+	})
+	req := &gen.LoadConfigReq{CoreConfig: To("{}"), NeedXray: To(false), RoutedExtraProcesses: []*gen.RoutedExtraProcess{{
+		Path: To(helper), Args: To("-test.run=^TestTransportHelperProcess$ rawline-transport-helper %s"),
+		Config: To(string(config)), OutboundTag: To("proxy"), NoOut: To(true),
+	}}}
+	s := new(server)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	started := make(chan *gen.ErrorResp, 1)
+	go func() {
+		result, _ := s.Start(ctx, req)
+		started <- result
+	}()
+	for {
+		if _, err := os.Stat(filepath.Join(folder, "launches")); err == nil {
+			break
+		}
+		select {
+		case early := <-started:
+			t.Fatalf("helper never started: %v", early)
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for helper")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	stopped := make(chan struct{})
+	go func() { s.Stop(ctx, new(gen.EmptyReq)); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop blocked behind the startup handshake")
+	}
+	if result := <-started; !strings.Contains(result.GetError(), context.Canceled.Error()) {
+		t.Fatalf("unexpected start result: %v", result)
+	}
 }
 
 func TestWatchdogReconnectsADroppedTransport(t *testing.T) {

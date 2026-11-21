@@ -175,6 +175,10 @@ namespace Engine {
         // Main thread only.
         int m_lastProfileId = -1;
         bool m_profileConnecting = false;
+        bool m_startCancelRpcPending = false;
+        StartRequest m_startAfterCancel;
+        void cancelStartingProfile();
+        void startAfterCancellation();
         bool m_profileDisconnecting = false;
         ConnectionState m_lastConnectionState = ConnectionState::Idle;
         quint64 m_startSerial = 0;
@@ -188,6 +192,7 @@ namespace Engine {
 
         // Locked and unlocked on different threads by design; no owner tracking.
         QMutex mu_starting;
+        std::atomic<bool> m_cancelStarting{false};
         QMutex mu_stopping;
         // Set while start() stops the running profile, so that stop is marked as part of the switch.
         std::atomic<bool> m_switchingProfile{false};

@@ -67,7 +67,7 @@ void StartStopButton::updateToolTip() {
     switch (m_state) {
         case State::Disabled: tip = tr("Select a profile to start"); break;
         case State::Idle: tip = tr("Start"); break;
-        case State::Connecting: tip = tr("Connecting…"); break;
+        case State::Connecting: tip = tr("Cancel connection"); break;
         case State::Running: tip = tr("Stop"); break;
         case State::Disconnecting: tip = tr("Stopping…"); break;
     }
@@ -84,7 +84,7 @@ void StartStopButton::updateToolTip() {
 }
 
 void StartStopButton::applyState(bool animated) {
-    const bool interactive = (m_state == State::Idle || m_state == State::Running);
+    const bool interactive = m_state == State::Idle || m_state == State::Running || m_state == State::Connecting;
     setEnabled(interactive);
     setCursor(interactive ? Qt::PointingHandCursor : Qt::ArrowCursor);
 

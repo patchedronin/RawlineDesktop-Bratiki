@@ -10,6 +10,7 @@ import (
 	"github.com/sagernet/sing-box/common/trafficcontrol"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/service"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *server) QueryStats(ctx context.Context, in *gen.EmptyReq) (out *gen.QueryStatsResp, err error) {
@@ -17,6 +18,22 @@ func (s *server) QueryStats(ctx context.Context, in *gen.EmptyReq) (out *gen.Que
 	out.Ups = make(map[string]int64)
 	out.Downs = make(map[string]int64)
 	if box := currentBox(); box != nil {
+		if lifecycleMu.TryLock() {
+			for _, session := range extraSessions {
+				if session.transport && session.backend == "" && session.tag == "proxy" {
+					session.mu.Lock()
+					health := session.health
+					session.mu.Unlock()
+					if health != nil {
+						if active, total := health.slots(); total > 0 {
+							out.QwdttActive, out.QwdttTotal = proto.Int32(int32(active)), proto.Int32(int32(total))
+						}
+					}
+					break
+				}
+			}
+			lifecycleMu.Unlock()
+		}
 		trafficManager := service.PtrFromContext[trafficcontrol.Manager](box.Context())
 		if trafficManager != nil {
 			outbounds := service.FromContext[adapter.OutboundManager](box.Context())

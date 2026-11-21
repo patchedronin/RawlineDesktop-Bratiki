@@ -231,6 +231,8 @@ message SubmitVPNChallengeRequest {
 message QueryStatsResp{
   map<string, int64> ups = 1;
   map<string, int64> downs = 2;
+  optional int32 qwdtt_active = 3;
+  optional int32 qwdtt_total = 4;
 }
 
 // active = currently live connections (drives the connection table).

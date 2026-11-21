@@ -271,7 +271,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     connect(ui->menu_start, &QAction::triggered, this, [=,this]() { profile_start(); });
     connect(ui->menu_stop, &QAction::triggered, this, [=,this]() { profile_stop(false, false, true); });
     connect(ui->toolButton_startstop, &QAbstractButton::clicked, this, [=,this]() {
-        if (runningSnapshot() != nullptr) profile_stop(false, false, true);
+        if (connection()->connectionState() == ConnectionState::Connecting || runningSnapshot() != nullptr) profile_stop(false, false, true);
         else profile_start();
     });
     ui->toolButton_startstop->setContextMenuPolicy(Qt::CustomContextMenu);

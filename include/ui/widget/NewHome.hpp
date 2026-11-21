@@ -352,6 +352,7 @@ private:
 
     QElapsedTimer m_connectedFor;
     bool m_wasRunning = false;
+    QString m_relaySlots;
     qint64 m_checkSince = 0;
     qint64 m_checkShownAt = 0;
     QString m_checkResult;

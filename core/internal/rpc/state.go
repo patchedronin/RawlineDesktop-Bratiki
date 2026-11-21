@@ -17,6 +17,7 @@ var lifecycleMu sync.Mutex
 
 // Guards the instance pointers; never held across a Create/Start, so pollers do not block behind a profile start.
 var stateMu sync.RWMutex
+var pendingStartCancel context.CancelFunc
 
 var boxInstance *boxbox.Box
 
@@ -29,7 +30,6 @@ var xrayGate *xray.Gate
 
 // One gate per opaque full config; never merged into the sidecar above.
 var xrayFullGates []*xray.Gate
-
 
 var stopEgressForwardingWatch func()
 

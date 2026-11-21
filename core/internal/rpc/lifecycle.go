@@ -25,6 +25,16 @@ func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.Err
 	if currentBox() != nil {
 		return &gen.ErrorResp{Error: To("instance already started")}, nil
 	}
+	ctx, cancelStart := context.WithCancel(ctx)
+	stateMu.Lock()
+	pendingStartCancel = cancelStart
+	stateMu.Unlock()
+	defer func() {
+		stateMu.Lock()
+		pendingStartCancel = nil
+		stateMu.Unlock()
+		cancelStart()
+	}()
 
 	defer func() {
 		out = &gen.ErrorResp{}
@@ -51,6 +61,9 @@ func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.Err
 			closeXray()
 		}
 	}()
+	if err = ctx.Err(); err != nil {
+		return
+	}
 
 	autoRedirectMark.Store(autoRedirectMarkFor([]byte(in.GetCoreConfig())))
 
@@ -131,6 +144,11 @@ func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.Err
 		stopSidecars()
 		return
 	}
+	if err = ctx.Err(); err != nil {
+		box.CloseWithTimeout(cancel, time.Second*2, log.Println, true)
+		stopSidecars()
+		return
+	}
 	setBoxInstance(box, cancel, routeRules)
 
 	if systemDNS {
@@ -153,6 +171,12 @@ func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.Err
 }
 
 func (s *server) Stop(ctx context.Context, in *gen.EmptyReq) (out *gen.ErrorResp, _ error) {
+	stateMu.RLock()
+	cancelStart := pendingStartCancel
+	stateMu.RUnlock()
+	if cancelStart != nil {
+		cancelStart()
+	}
 	lifecycleMu.Lock()
 	defer lifecycleMu.Unlock()
 

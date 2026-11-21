@@ -2058,6 +2058,7 @@ NewHome::NewHome(MainWindow *window) : QWidget(nullptr), mw(window) {
     applyArrangement();
 
     connect(Engine::host()->stats(), &Engine::StatsService::trafficSampled, this, [this](const Stats::TrafficSample &s) {
+        m_relaySlots = s.relaySlots;
         m_rateDown = s.coreRunning ? s.proxyDown : 0;
         m_rateUp = s.coreRunning ? s.proxyUp : 0;
         m_down->setText(QStringLiteral("↓ ") + ReadableSize(qint64(m_rateDown)) + QStringLiteral("/s"));
@@ -2612,14 +2613,16 @@ void NewHome::refreshConnectionOrb() {
     const bool connected = state == StartStopButton::State::Running;
     const bool connecting = state == StartStopButton::State::Connecting;
     if (connected && !m_wasRunning) m_connectedFor.start();
+    if (!connected) m_relaySlots.clear();
     m_wasRunning = connected;
     QString status;
     if (connecting) status = T("Connecting…");
     else if (state == StartStopButton::State::Disconnecting) status = T("Stopping…");
     else if (connected) status = T("Connected");
     const qint64 seconds = connected && m_connectedFor.isValid() ? m_connectedFor.elapsed() / 1000 : 0;
-    const QString elapsed = QStringLiteral("%1:%2:%3").arg(seconds / 3600, 2, 10, QLatin1Char('0'))
+    QString elapsed = QStringLiteral("%1:%2:%3").arg(seconds / 3600, 2, 10, QLatin1Char('0'))
         .arg(seconds / 60 % 60, 2, 10, QLatin1Char('0')).arg(seconds % 60, 2, 10, QLatin1Char('0'));
+    if (connected && !m_relaySlots.isEmpty()) elapsed += QStringLiteral("  ") + m_relaySlots;
     m_orb->setState(connected, connecting, status, elapsed);
     m_orb->setEnabled(state != StartStopButton::State::Disabled && state != StartStopButton::State::Disconnecting);
 }

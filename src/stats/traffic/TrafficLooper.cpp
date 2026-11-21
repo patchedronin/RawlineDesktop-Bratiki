@@ -39,6 +39,8 @@ namespace Stats {
         }
 
         auto resp = API::defaultClient->QueryStats();
+        relaySlots = resp.qwdtt_total.value_or(0) > 0 && resp.qwdtt_active
+            ? QStringLiteral("%1/%2").arg(*resp.qwdtt_active).arg(*resp.qwdtt_total) : QString{};
         const auto now = MonotonicMs();
         const auto durationMs = lastProbeMs > 0 ? now - lastProbeMs : 0;
         lastProbeMs = now;
@@ -143,6 +145,7 @@ namespace Stats {
             QVector<double> values;
             double proxyDown = 0, proxyUp = 0, directDown = 0, directUp = 0;
             QString status;
+            QString slotsText;
             QList<int> ids;
             {
                 QMutexLocker lk(&loop_mutex);
@@ -150,6 +153,7 @@ namespace Stats {
                 now = MonotonicMs();
                 due = !lines.isEmpty() && emitDue(now);
                 if (due) {
+                    slotsText = relaySlots;
                     values = WindowRates();
                     const auto directLine = lines.size() - 1;
                     for (qsizetype line = 0; line < lines.size(); ++line) {
@@ -181,7 +185,7 @@ namespace Stats {
             if (!due) continue;
             runOnUiThread([=] {
                 if (auto *sink = CurrentStatsSink()) {
-                    sink->onTrafficSample(TrafficSample{now, true, values, proxyDown, proxyUp, directDown, directUp, status, ids});
+                    sink->onTrafficSample(TrafficSample{now, true, values, proxyDown, proxyUp, directDown, directUp, status, ids, slotsText});
                 }
             });
         }

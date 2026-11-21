@@ -66,6 +66,7 @@ namespace Stats {
         QList<int> creditedIds;
         std::deque<RateProbe> rateWindow;
         qint64 lastProbeMs = 0;
+        QString relaySlots;
     };
 
     extern TrafficLooper *trafficLooper;

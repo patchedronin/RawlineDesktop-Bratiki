@@ -23,6 +23,9 @@ type transportHealth struct {
 	everActive   bool
 	workers      int
 	workersKnown bool
+	workerLimit  int
+	slotsActive  int
+	slotsKnown   bool
 	peak         int
 	zeroEventAt  time.Time
 	restartAt    time.Time
@@ -31,6 +34,7 @@ type transportHealth struct {
 }
 
 var activeWorkers = regexp.MustCompile(`(?i)(?:Активных:\s*|\bactive=)([0-9]+)`)
+var workerLimit = regexp.MustCompile(`\[КЛИЕНТ\] Воркеров: ([0-9]+) \(групп:`)
 
 // A solved check is progress: the original apps count only a failed solve.
 var captchaSolved = regexp.MustCompile(`(?i)Smart Captcha решена|решила капчу|решил капчу|Капча решена|solve succeeded`)
@@ -47,6 +51,9 @@ func (h *transportHealth) accept(line string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := h.clock()
+	if m := workerLimit.FindStringSubmatch(line); h.statsClient && m != nil {
+		h.workerLimit, _ = strconv.Atoi(m[1])
+	}
 	if m := activeWorkers.FindStringSubmatch(line); m != nil {
 		if count, err := strconv.Atoi(m[1]); err == nil {
 			if count == 0 && (!h.workersKnown || h.workers != 0) {
@@ -55,6 +62,9 @@ func (h *transportHealth) accept(line string) {
 			h.workers, h.workersKnown = count, true
 			h.lastStats = now
 			h.statsSeen = true
+			if h.statsClient && strings.Contains(line, "[СТАТИСТИКА]") {
+				h.slotsActive, h.slotsKnown = count, true
+			}
 			if count > 0 {
 				h.everActive = true
 				h.wrapTimeouts = 0
@@ -90,6 +100,15 @@ func (h *transportHealth) accept(line string) {
 		h.workers, h.workersKnown = max(1, h.workers), true
 		h.everActive = true
 	}
+}
+
+func (h *transportHealth) slots() (int, int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.slotsKnown || h.slotsActive > h.workerLimit {
+		return 0, 0
+	}
+	return h.slotsActive, h.workerLimit
 }
 
 // The original watchdog's verdict: three WRAP timeouts and no worker ever up after 30 s.
