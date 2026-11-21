@@ -1,7 +1,6 @@
 #include "include/configs/outbounds/wireguard.h"
 
 #include <QCoreApplication>
-#include <QHostAddress>
 #include <QJsonArray>
 #include <QRegularExpression>
 #include <QUrlQuery>
@@ -10,7 +9,7 @@
 #include "include/configs/ParseDiagnostics.h"
 #include "include/configs/common/utils.h"
 
-#include <cmath>
+#include <algorithm>
 #include <limits>
 #include <tuple>
 #include <utility>
@@ -49,16 +48,6 @@ namespace Configs {
             addresses = kept;
         }
 
-        // Full tunnels also come as halves (0.0.0.0/1 + 128.0.0.0/1) or as "everything but the LAN" lists.
-        bool wireguardFullTunnel(const QStringList& allowedIps) {
-            double v4 = 0, v6 = 0;
-            for (const auto& cidr : allowedIps) {
-                const auto [network, prefix] = QHostAddress::parseSubnet(cidr);
-                if (prefix < 0) continue;
-                (network.protocol() == QAbstractSocket::IPv4Protocol ? v4 : v6) += std::ldexp(1.0, -prefix);
-            }
-            return v4 >= 0.5 || v6 >= 0.5;
-        }
     }
 
     namespace Checks {
@@ -169,10 +158,30 @@ namespace Configs {
         return trimmed == "true" || trimmed == "1" || trimmed == "on" || trimmed == "yes";
     }
 
+    bool Peer::SetAllowedNetworks(const QStringList &networks) {
+        if (networks.isEmpty() || std::any_of(networks.cbegin(), networks.cend(), [](const QString &network) {
+            return !Validation::Cidr(network).isEmpty();
+        })) {
+            ParseDiag::Error("AllowedIPs", QCoreApplication::translate("Validation", "Expected a non-empty list of IPv4 or IPv6 CIDRs."));
+            return false;
+        }
+        allowed_ips = networks;
+        return true;
+    }
+
+    QStringList Peer::AllowedNetworks() const {
+        return allowed_ips.isEmpty() ? QStringList{"0.0.0.0/0", "::/0"} : allowed_ips;
+    }
+
     bool Peer::ParseFromLink(const QString& link) {
         auto url = QUrl(link);
         if (!url.isValid()) return false;
         auto query = QUrlQuery(url.query());
+        if (query.hasQueryItem("allowed_ips")) {
+            auto networks = QueryValue(query, "allowed_ips").split(',');
+            for (auto &network : networks) network = network.trimmed();
+            if (!SetAllowedNetworks(networks)) return false;
+        }
 
         address = url.host(QUrl::FullyEncoded);
         port = url.port(51820);
@@ -204,6 +213,13 @@ namespace Configs {
 
     bool Peer::ParseFromJson(const QJsonObject& object) {
         if (object.isEmpty()) return false;
+        if (object.contains("allowed_ips")) {
+            const auto value = object["allowed_ips"];
+            QStringList networks;
+            if (value.isString()) networks << value.toString();
+            else for (const auto &network : value.toArray()) networks << network.toString();
+            if (!SetAllowedNetworks(networks)) return false;
+        }
         if (object.contains("address")) address = object["address"].toString();
         if (object.contains("port")) port = object["port"].toInt();
         if (object.contains("public_key")) public_key = object["public_key"].toString();
@@ -242,6 +258,7 @@ namespace Configs {
         QUrlQuery query;
         if (!public_key.isEmpty()) query.addQueryItem("public_key", public_key);
         if (!pre_shared_key.isEmpty()) query.addQueryItem("pre_shared_key", pre_shared_key);
+        if (!allowed_ips.isEmpty()) query.addQueryItem("allowed_ips", allowed_ips.join(','));
         if (!reserved.isEmpty()) {
             QStringList reservedStr;
             for (auto val : reserved) {
@@ -259,20 +276,15 @@ namespace Configs {
         if (port > 0) object["port"] = port;
         if (!public_key.isEmpty()) object["public_key"] = public_key;
         if (!pre_shared_key.isEmpty()) object["pre_shared_key"] = pre_shared_key;
+        if (!allowed_ips.isEmpty()) object["allowed_ips"] = QListStr2QJsonArray(allowed_ips);
         if (!reserved.isEmpty()) object["reserved"] = QListInt2QJsonArray(reserved);
         WriteKeepalive(object);
         return object;
     }
 
     BuildResult Peer::Build() {
-        QJsonObject object;
-        if (!address.isEmpty()) object["address"] = address;
-        if (port > 0) object["port"] = port;
-        if (!public_key.isEmpty()) object["public_key"] = public_key;
-        if (!pre_shared_key.isEmpty()) object["pre_shared_key"] = pre_shared_key;
-        if (!reserved.isEmpty()) object["reserved"] = QListInt2QJsonArray(reserved);
-        WriteKeepalive(object);
-        object["allowed_ips"] = QListStr2QJsonArray({"0.0.0.0/0", "::/0"});
+        auto object = ExportToJson();
+        object["allowed_ips"] = QListStr2QJsonArray(AllowedNetworks());
         return {object, ""};
     }
 
@@ -304,7 +316,12 @@ namespace Configs {
                 if (trimmed.isEmpty() || trimmed.startsWith(';')) continue;
                 if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
                     section = trimmed.mid(1, trimmed.size() - 2).trimmed().toLower();
-                    if (section == "peer") ++peers;
+                    if (section == "peer" && peers++ > 0) {
+                        peer = std::make_shared<Peer>();
+                        server.clear();
+                        server_port = 0;
+                        allowedIps.clear();
+                    }
                     continue;
                 }
                 if (!trimmed.contains("=")) continue;
@@ -312,6 +329,10 @@ namespace Configs {
                 const QString rawKey = trimmed.left(eqIdx).trimmed();
                 QString key = rawKey.toLower();
                 QString value = trimmed.mid(eqIdx + 1).trimmed();
+                if (section == "peer" && key == "allowedips") {
+                    for (const auto &network : value.split(',')) allowedIps << network.trimmed();
+                    continue;
+                }
                 // Phobos links write "none" for every field the panel left unset.
                 if (value.compare("none", Qt::CaseInsensitive) == 0) continue;
 
@@ -383,7 +404,6 @@ namespace Configs {
                 else if (key == "maxhandshakeattempts" || key == "max_handshake_attempts") max_handshake_attempts = value, enable_amnezia = true;
                 else if (key == "randomtrailers" || key == "random_trailers") random_trailers = ParseAmneziaBool(value), enable_amnezia = true;
                 else if (key == "disablecookies" || key == "disable_cookies") disable_cookies = ParseAmneziaBool(value), enable_amnezia = true;
-                else if (key == "allowedips") allowedIps << value.remove(' ').split(',', Qt::SkipEmptyParts);
                 // wg-quick's host-side settings: Rawline owns DNS and routing.
                 else if (key != "dns" && key != "listenport" && key != "table" && key != "fwmark" && key != "saveconfig" &&
                          key != "preup" && key != "postup" && key != "predown" && key != "postdown") {
@@ -393,10 +413,7 @@ namespace Configs {
             if (peers > 1) {
                 ParseDiag::Warn("[Peer]", QCoreApplication::translate("Validation", "Only the last of the %1 [Peer] sections is used.").arg(peers));
             }
-            if (!allowedIps.isEmpty() && !wireguardFullTunnel(allowedIps)) {
-                ParseDiag::Warn("AllowedIPs", QCoreApplication::translate("Validation", "Ignored; Rawline sends all traffic of this profile through the tunnel."),
-                                allowedIps.join(", "));
-            }
+            if (!allowedIps.isEmpty() && !peer->SetAllowedNetworks(allowedIps)) return false;
             // The peer's Endpoint points at the local obfuscator; the server is its target.
             if (const auto colon = target.lastIndexOf(':'); colon > 0) {
                 auto host = target.left(colon).trimmed();
@@ -427,7 +444,7 @@ namespace Configs {
         else if (query.hasQueryItem("privatekey")) private_key = QueryValue(query, "privatekey");
         else if (!url.userName().isEmpty()) private_key = url.userName();
 
-        peer->ParseFromLink(link);
+        if (!peer->ParseFromLink(link)) return false;
         server = peer->address;
         server_port = peer->port;
         
@@ -535,7 +552,7 @@ namespace Configs {
         if (object.contains("private_key")) private_key = object["private_key"].toString();
         if (object.contains("peers") && object["peers"].isArray() && !object["peers"].toArray().empty()) {
             const auto peers = object["peers"].toArray();
-            peer->ParseFromJson(peers[0].toObject());
+            if (!peer->ParseFromJson(peers[0].toObject())) return false;
             if (peers.size() > 1 && ParseDiag::Active()) {
                 ParseDiag::Warn("peers", QCoreApplication::translate("Validation", "Only the first of the %1 peers is used.").arg(peers.size()));
             }
@@ -884,12 +901,30 @@ namespace Configs {
         obfs_media_clock = object["media_clock"].toInt();
     }
 
+    QString wireguard::ExportWireGuardConf() const {
+        if (enable_amnezia || !obfs_type.isEmpty() || !peer->reserved.isEmpty()) return {};
+        bool numeric = false;
+        peer->persistent_keepalive.toInt(&numeric);
+        if (!peer->persistent_keepalive.isEmpty() && !numeric) return {};
+        const QString endpoint = ::DisplayAddress(peer->address, peer->port);
+        const QStringList values{private_key, peer->public_key, peer->pre_shared_key, address.join(','), dns.join(','), endpoint};
+        for (const auto &value : values) if (value.contains(u'\r') || value.contains(u'\n')) return {};
+        QStringList conf{"[Interface]", "PrivateKey = " + private_key, "Address = " + address.join(", ")};
+        if (!dns.isEmpty()) conf << "DNS = " + dns.join(", ");
+        if (mtu > 0) conf << "MTU = " + QString::number(mtu);
+        conf << "" << "[Peer]" << "PublicKey = " + peer->public_key;
+        if (!peer->pre_shared_key.isEmpty()) conf << "PresharedKey = " + peer->pre_shared_key;
+        conf << "AllowedIPs = " + peer->AllowedNetworks().join(", ") << "Endpoint = " + endpoint;
+        if (!peer->persistent_keepalive.isEmpty()) conf << "PersistentKeepalive = " + peer->persistent_keepalive;
+        return conf.join('\n') + '\n';
+    }
+
     QString wireguard::ExportPhobosConf() {
         QStringList conf{"[Interface]", "PrivateKey = " + private_key, "Address = " + address.join(", ")};
         if (mtu > 0) conf << "MTU = " + QString::number(mtu);
         conf << "" << "[Peer]" << "PublicKey = " + peer->public_key;
         if (!peer->pre_shared_key.isEmpty()) conf << "PresharedKey = " + peer->pre_shared_key;
-        conf << "AllowedIPs = 0.0.0.0/0, ::/0";
+        conf << "AllowedIPs = " + peer->AllowedNetworks().join(", ");
         if (!peer->persistent_keepalive.isEmpty()) conf << "PersistentKeepalive = " + peer->persistent_keepalive;
         conf << "Endpoint = 127.0.0.1:13255" << "" << "[instance]" << "source-if = 127.0.0.1" << "source-lport = 13255"
              << "target = " + ::DisplayAddress(peer->address, peer->port) << "key = " + obfs_key

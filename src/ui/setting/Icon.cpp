@@ -100,7 +100,7 @@ QIcon Icon::GetTrayIcon(TrayIconStatus status) {
         icon = tinted;
     }
     if (!own && status != TrayIconStatus::None) {
-        const QColor dot = status == TrayIconStatus::Connecting ? QColor("#F5B942") : QColor("#32C98B");
+        const QColor dot = status == TrayIconStatus::Connecting ? QColor("#F5B942") : QColor(Qt::white);
         QIcon marked;
         for (const int size : {16, 24, 32, 48, 64, 128}) {
             auto pixmap = icon.pixmap(size, size);

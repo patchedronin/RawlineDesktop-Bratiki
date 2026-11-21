@@ -1,5 +1,6 @@
 #include "include/ui/mainwindow.h"
 #include "include/configs/outbounds/qwdtt.h"
+#include "include/configs/outbounds/wireguard.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -16,6 +17,7 @@
 #include <QMutex>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QScreen>
 #include <QScrollBar>
 #include <QTabWidget>
@@ -43,6 +45,7 @@
 #include "include/ui/mainWindow/MainWindowInternal.h"
 #include "include/ui/profile/dialog_edit_profile.h"
 #include "include/ui/utils/ProfilesTableModel.h"
+#include "include/ui/utils/NativeFileDialog.h"
 #include "include/ui/widget/json/JsonCodeEdit.h"
 
 namespace {
@@ -247,6 +250,21 @@ void MainWindow::on_menu_export_config_triggered() {
     const QString copyText = tr("Copy");
     const QString copiedText = tr("Copied");
     auto *copy = buttons->addButton(copyText, QDialogButtonBox::ActionRole);
+    if (const auto *wg = dynamic_cast<const Configs::wireguard *>(ent->outbound.get())) {
+        const auto config = wg->ExportWireGuardConf();
+        if (!config.isEmpty()) {
+            auto *save = buttons->addButton(tr("Export WireGuard (.conf)"), QDialogButtonBox::ActionRole);
+            connect(save, &QPushButton::clicked, &dialog, [this, &dialog, config] {
+                const auto path = NativeFileDialog::getSaveFileName(&dialog, tr("Export WireGuard (.conf)"),
+                    QStringLiteral("wireguard.conf"), QStringLiteral("WireGuard (*.conf)"));
+                if (path.isEmpty()) return;
+                QSaveFile file(path);
+                const auto data = config.toUtf8();
+                if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit())
+                    MessageBoxWarning(tr("Export config"), file.errorString());
+            });
+        }
+    }
     buttons->button(QDialogButtonBox::Close)->setDefault(true);
     layout->addWidget(buttons);
 

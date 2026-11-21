@@ -27,6 +27,9 @@ namespace Configs
         QString public_key;
         QString pre_shared_key;
         QList<int> reserved;
+        QStringList allowed_ips;
+        bool SetAllowedNetworks(const QStringList &networks);
+        QStringList AllowedNetworks() const;
         // Seconds, or an AmneziaWG 3.0 range such as "22-30".
         QString persistent_keepalive;
 
@@ -101,6 +104,7 @@ namespace Configs
 
         // The Phobos client .conf: [Interface], [Peer] and the obfuscator's [instance].
         QString ExportPhobosConf();
+        QString ExportWireGuardConf() const;
         // The core's "obfs" object; empty without an obfuscator.
         QJsonObject ObfsToJson() const;
 
