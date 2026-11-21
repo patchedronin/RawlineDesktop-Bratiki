@@ -399,7 +399,7 @@ namespace {
                 if (event->type() == QEvent::WinIdChange) widget->setProperty("rawlineNativeFrameRegion", QVariant());
                 if (widget->isVisible() && widget->internalWinId() &&
                     (widget->windowFlags() & Qt::WindowTitleHint) && !(widget->windowFlags() & Qt::FramelessWindowHint))
-                    clipNativeFrame(widget, reinterpret_cast<HWND>(widget->internalWinId()), NewStyle::active() || qobject_cast<MainWindow *>(widget));
+                    clipNativeFrame(widget, reinterpret_cast<HWND>(widget->internalWinId()), NewStyle::active());
             }
 #endif
             if (!NewStyle::active()) return false;
@@ -626,8 +626,7 @@ void NewStyle::themeFrame(QWidget *window) {
         !(window->windowFlags() & Qt::WindowTitleHint) || (window->windowFlags() & Qt::FramelessWindowHint)) return;
     const HWND hwnd = reinterpret_cast<HWND>(window->internalWinId());
     const bool themed = active();
-    const bool main = qobject_cast<MainWindow *>(window);
-    clipNativeFrame(window, hwnd, themed || main);
+    clipNativeFrame(window, hwnd, themed);
     if (!set) return;
     const BOOL dark = themed ? !light() : qApp->palette().color(QPalette::Window).lightness() < 128;
     set(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof dark);
@@ -637,7 +636,7 @@ void NewStyle::themeFrame(QWidget *window) {
     const COLORREF caption = themed ? ref(background()) : useDefault;
     const COLORREF ink = themed ? ref(text()) : useDefault;
     constexpr COLORREF noBorder = 0xfffffffe; // DWMWA_COLOR_NONE
-    const COLORREF border = themed || main ? noBorder : useDefault;
+    const COLORREF border = themed ? noBorder : useDefault;
     set(hwnd, 35 /* DWMWA_CAPTION_COLOR */, &caption, sizeof caption);
     set(hwnd, 36 /* DWMWA_TEXT_COLOR */, &ink, sizeof ink);
     set(hwnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
@@ -3433,6 +3432,7 @@ void MainWindow::applyInterfaceStyle(bool animated) {
     if (wantNew) framePalette.setColor(QPalette::Window, NewStyle::background());
     centralWidget()->setPalette(framePalette);
     centralWidget()->setAutoFillBackground(true);
+    centralWidget()->findChild<QWidget *>(QStringLiteral("rawlineMainCaption"), Qt::FindDirectChildrenOnly)->setVisible(wantNew);
 #endif
     // The hidden page must not hold the window to its own minimum: the new one goes down to a phone's width.
     if (QWidget *classic = rootStack->widget(0)) {
@@ -3469,8 +3469,11 @@ void MainWindow::applyInterfaceStyle(bool animated) {
 
 void MainWindow::syncWindowFrame() {
 #ifdef Q_OS_WIN
-    if (const auto id = internalWinId(); id && property("rawlineCaptionWindow").toULongLong() != quint64(id)) {
+    const bool custom = NewStyle::active();
+    if (const auto id = internalWinId(); id && (property("rawlineCaptionWindow").toULongLong() != quint64(id) ||
+                                               property("rawlineCustomCaption").toBool() != custom)) {
         setProperty("rawlineCaptionWindow", quint64(id));
+        setProperty("rawlineCustomCaption", custom);
         SetWindowPos(reinterpret_cast<HWND>(id), nullptr, 0, 0, 0, 0,
                      SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
@@ -3496,6 +3499,7 @@ void MainWindow::syncWindowFrame() {
 
 #ifdef Q_OS_WIN
 bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
+    if (!NewStyle::active()) return QMainWindow::nativeEvent(eventType, message, result);
     const auto *msg = static_cast<const MSG *>(message);
     if (msg->message == WM_NCCALCSIZE && msg->wParam) {
         if (IsZoomed(msg->hwnd)) {

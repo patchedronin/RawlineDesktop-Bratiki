@@ -466,17 +466,18 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 DeleteObject(region);
                 return rounded;
             };
-            const auto checkMainCaption = [&] {
+            const auto checkMainCaption = [&](bool custom) {
                 const auto *caption = mw->findChild<QWidget *>(QStringLiteral("rawlineMainCaption"));
-                check(caption && caption->isVisible() && caption->findChildren<QAbstractButton *>().size() == 3,
-                      "main window lacks the Rawline caption buttons");
+                check(caption && caption->isVisible() == custom && caption->findChildren<QAbstractButton *>().size() == 3,
+                      "the wrong caption is visible");
                 const auto hwnd = reinterpret_cast<HWND>(mainId);
                 RECT window{};
                 POINT client{};
                 check(GetWindowRect(hwnd, &window) && ClientToScreen(hwnd, &client) &&
-                      client.x == window.left && client.y == window.top, "Windows drew a frame outside the Rawline caption");
+                      ((client.x == window.left && client.y == window.top) == custom),
+                      "the Windows frame did not follow the selected theme");
             };
-            checkMainCaption();
+            checkMainCaption(true);
             check(hasCaption(dialogId), "new dialog must retain its Windows caption");
             check(hasRoundedRegion(mainId) && hasRoundedRegion(dialogId), "new Windows frame is still rectangular");
 #else
@@ -491,8 +492,8 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
 #ifdef Q_OS_WIN
                 check(mw->winId() == mainId && dialog.winId() == dialogId && hasCaption(mainId) && hasCaption(dialogId),
                       "switching with settings open changed the Windows frame");
-                checkMainCaption();
-                check(hasRoundedRegion(mainId) && !hasRoundedRegion(dialogId), "incorrect rounding in classic theme");
+                checkMainCaption(false);
+                check(!hasRoundedRegion(mainId) && !hasRoundedRegion(dialogId), "Rawline rounding survived the switch to classic");
 #endif
                 check(dialog.contentsMargins() == margins, "title bar space leaked into classic layout");
                 check(!dialog.testAttribute(Qt::WA_TranslucentBackground) && !dialog.testAttribute(Qt::WA_NoSystemBackground), "classic dialog still transparent");
@@ -502,7 +503,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 check(mw->winId() == mainId && dialog.winId() == dialogId && hasCaption(mainId) && hasCaption(dialogId),
                       "switching back changed the Windows frame");
                 check(hasRoundedRegion(mainId) && hasRoundedRegion(dialogId), "Rawline rounding did not return");
-                checkMainCaption();
+                checkMainCaption(true);
 #else
                 check(dialog.property("newFrame").toBool(), "existing dialog did not recover the new frame");
 #endif
@@ -521,6 +522,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 check(mw->centralWidget()->autoFillBackground() && mw->mask().isEmpty(), "classic background is not opaque");
                 check(mw->centralWidget()->palette().color(QPalette::Window) == qApp->palette().color(QPalette::Window),
                       "Rawline background survived the switch to System");
+                checkMainCaption(false);
                 tour->shoot(QStringLiteral("system-with-settings-open"));
             }
             themeManager()->ApplyTheme(theme);
@@ -540,7 +542,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 themeManager()->ApplyTheme(theme);
 #ifdef Q_OS_WIN
                 check(mw->winId() == mainId && hasCaption(mainId), "main window lost its native caption");
-                checkMainCaption();
+                checkMainCaption(true);
 #else
                 check(mw->windowFlags() & Qt::FramelessWindowHint, "main window did not recover the Rawline frame");
 #endif
