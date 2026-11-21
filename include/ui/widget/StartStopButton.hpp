@@ -51,6 +51,9 @@ public:
     QColor ringColor() const { return m_ringColor; }
     void setRingColor(const QColor &c) { m_ringColor = c; update(); }
 
+signals:
+    void stateChanged(State state);
+
 protected:
     void paintEvent(QPaintEvent *) override;
     void showEvent(QShowEvent *) override;

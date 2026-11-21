@@ -46,6 +46,7 @@ void StartStopButton::setState(State s) {
     if (s == m_state) return;
     m_state = s;
     applyState(true);
+    emit stateChanged(s);
 }
 
 void StartStopButton::setMode(Mode m) {

@@ -69,6 +69,7 @@
 #include <QtMath>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <tuple>
 
@@ -1189,10 +1190,12 @@ NewOrb::NewOrb(QWidget *parent) : QAbstractButton(parent) {
 }
 
 void NewOrb::setState(bool connected, bool connecting, const QString &status, const QString &elapsed) {
+    if (m_connected == connected && m_connecting == connecting && m_status == status && m_elapsed == elapsed) return;
     m_connected = connected;
     m_connecting = connecting;
     m_status = status;
     m_elapsed = elapsed;
+    update();
 }
 
 void NewOrb::showEvent(QShowEvent *e) { m_frame->start(16); QAbstractButton::showEvent(e); }
@@ -1237,12 +1240,13 @@ void NewOrb::paintEvent(QPaintEvent *) {
     m_wave = ease(m_wave, m_connected ? 1 : m_connecting ? .6 : .3, 320);
     m_spin = ease(m_spin, m_connecting ? 1 : 0, 240);
     m_lit = ease(m_lit, m_connected || m_connecting ? 1 : 0, 260);
+    m_opacity = ease(m_opacity, isEnabled() ? 1.0 : .55, 120);
     m_angle = std::fmod(m_angle + dt * (.14 + .24 * m_spin), 360);
     m_phase = std::fmod(m_phase + dt * (.00035 + .001 * m_spin), 2 * M_PI);
 
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    if (!isEnabled()) p.setOpacity(.55);
+    p.setOpacity(m_opacity);
     const int size = std::min(width(), height());
     const qreal rest = size * .27, base = rest * m_pressScale;
     const qreal cx = width() / 2.0, cy = rest * 1.6;
@@ -1269,13 +1273,25 @@ void NewOrb::paintEvent(QPaintEvent *) {
         p.drawEllipse(QPointF(cx, cy), base * 1.55, base * 1.55);
         p.restore();
     }
+    struct WavePoint { QPointF unit; qreal sin8, cos8, sin3, cos3; };
+    static const auto points = [] {
+        std::array<WavePoint, 144> samples;
+        for (size_t i = 0; i < samples.size(); ++i) {
+            const qreal theta = i * 2.0 * M_PI / samples.size();
+            samples[i] = {{std::cos(theta), std::sin(theta)}, std::sin(8 * theta), std::cos(8 * theta),
+                          std::sin(3 * theta), std::cos(3 * theta)};
+        }
+        return samples;
+    }();
+    const qreal sin8 = std::sin(m_phase * 8), cos8 = std::cos(m_phase * 8);
+    const qreal sin3 = std::sin(m_phase * 3), cos3 = std::cos(m_phase * 3);
     QPainterPath edge;
-    const int steps = 144;
-    for (int step = 0; step <= steps; ++step) {
-        const qreal theta = step * 2.0 * M_PI / steps;
-        const qreal swell = 1 + m_wave * .06 * std::sin(8 * theta + m_phase * 8) + m_wave * .02 * std::sin(3 * theta - m_phase * 3);
-        const QPointF point(cx + base * swell * std::cos(theta), cy + base * swell * std::sin(theta));
-        if (step == 0) edge.moveTo(point); else edge.lineTo(point);
+    edge.reserve(points.size() + 1);
+    for (const auto &sample : points) {
+        const qreal swell = 1 + m_wave * (.06 * (sample.sin8 * cos8 + sample.cos8 * sin8)
+                                       + .02 * (sample.sin3 * cos3 - sample.cos3 * sin3));
+        const QPointF point = QPointF(cx, cy) + sample.unit * (base * swell);
+        if (&sample == &points.front()) edge.moveTo(point); else edge.lineTo(point);
     }
     edge.closeSubpath();
     // A drop: thin at the top, gathering light low in its body, a glint high on the left.
@@ -1312,12 +1328,14 @@ void NewOrb::paintEvent(QPaintEvent *) {
     // The stroke that runs round while connecting: from a clear tail to a bright head.
     if (m_spin > .01) {
         const qreal ring = base * 1.14;
-        const int pieces = 48;
-        for (int i = 0; i < pieces; ++i) {
-            const qreal a0 = (m_angle * 2 + 225.0 * i / pieces) * M_PI / 180, a1 = (m_angle * 2 + 225.0 * (i + 1) / pieces) * M_PI / 180;
-            p.setPen(QPen(withAlpha(ink, int(255 * m_spin * (i + 1) / pieces)), 3, Qt::SolidLine, Qt::RoundCap));
-            p.drawLine(QPointF(cx + ring * std::cos(a0), cy + ring * std::sin(a0)), QPointF(cx + ring * std::cos(a1), cy + ring * std::sin(a1)));
-        }
+        constexpr int sweep = 225;
+        QConicalGradient trail(QPointF(cx, cy), -m_angle * 2 - sweep);
+        const auto head = withAlpha(ink, qRound(255 * m_spin));
+        trail.setColorAt(0, head);
+        trail.setColorAt(sweep / 360.0, withAlpha(ink, 0));
+        trail.setColorAt(1, head);
+        p.setPen(QPen(QBrush(trail), 3, Qt::SolidLine, Qt::RoundCap));
+        p.drawArc(QRectF(cx - ring, cy - ring, ring * 2, ring * 2), qRound(-m_angle * 32), -sweep * 16);
     }
     // Power symbol.
     const qreal glyph = base * .34;
@@ -1934,6 +1952,7 @@ NewHome::NewHome(MainWindow *window) : QWidget(nullptr), mw(window) {
         m_up->setText(QStringLiteral("↑ ") + ReadableSize(qint64(m_rateUp)) + QStringLiteral("/s"));
     });
     connect(mw->ui->tabWidget, &QTabWidget::currentChanged, this, [this] { groupChanged(); });
+    connect(mw->ui->toolButton_startstop, &StartStopButton::stateChanged, this, &NewHome::refreshConnectionOrb);
     connect(themeManager(), &ThemeManager::themeChanged, this, [this] {
         const auto family = NewStyle::font(14).family();
         for (auto *text : findChildren<QLabel *>()) {
@@ -2465,7 +2484,7 @@ void NewHome::refreshGroupHeader() {
         : T("This group has no servers yet.");
 }
 
-void NewHome::refresh() {
+void NewHome::refreshConnectionOrb() {
     if (!m_attached) return;
     auto *button = mw->ui->toolButton_startstop;
     const auto state = button->state();
@@ -2482,6 +2501,12 @@ void NewHome::refresh() {
         .arg(seconds / 60 % 60, 2, 10, QLatin1Char('0')).arg(seconds % 60, 2, 10, QLatin1Char('0'));
     m_orb->setState(connected, connecting, status, elapsed);
     m_orb->setEnabled(state != StartStopButton::State::Disabled && state != StartStopButton::State::Disconnecting);
+}
+
+void NewHome::refresh() {
+    if (!m_attached) return;
+    refreshConnectionOrb();
+    const bool connected = mw->ui->toolButton_startstop->state() == StartStopButton::State::Running;
 
     const auto &settings = Configs::dataManager->settingsRepo;
     m_tun->setOn(settings->spmode_vpn);

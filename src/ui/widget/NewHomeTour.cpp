@@ -7,6 +7,7 @@
 #include "include/ui/utils/ProfilesTableModel.h"
 #include "include/ui/setting/ThemeManager.hpp"
 #include "include/ui/setting/dialog_basic_settings.h"
+#include "include/ui/widget/StartStopButton.hpp"
 #include "include/configs/sub/GroupUpdater.hpp"
 #include "include/database/SettingsRepo.h"
 #include "include/engine/EngineHost.h"
@@ -158,6 +159,14 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
         s << std::pair{QStringLiteral("home"), std::function<void()>([home] {
             if (auto *h = home(); h && h->m_list->model() && h->m_list->model()->rowCount() > 1) h->m_list->setCurrentIndex(h->m_list->model()->index(1, 0));
         })};
+        s << std::pair{QStringLiteral("switching-orb"), std::function<void()>([home, mw] {
+            auto *button = mw->ui->toolButton_startstop;
+            button->setState(StartStopButton::State::Disconnecting);
+            if (home()->m_orb->isEnabled()) qFatal("Connection button did not react immediately to stopping");
+            button->setState(StartStopButton::State::Connecting);
+            if (!home()->m_orb->isEnabled()) qFatal("Connection button did not react immediately to switching");
+        })};
+        s << std::pair{QString(), std::function<void()>([mw] { mw->refresh_startstop_button(); })};
         s << std::pair{QStringLiteral("empty-space-selection"), std::function<void()>([home, mw] {
             auto *h = home();
             const auto check = [](bool ok, const char *message) { if (!ok) qFatal("Selection regression: %s", message); };

@@ -158,7 +158,7 @@ private:
     bool m_connecting = false;
     QString m_status;
     QString m_elapsed;
-    qreal m_wave = .3, m_spin = 0, m_lit = 0, m_angle = 0, m_phase = 0, m_pressScale = 1;
+    qreal m_wave = .3, m_spin = 0, m_lit = 0, m_angle = 0, m_phase = 0, m_pressScale = 1, m_opacity = 1;
     qint64 m_lastFrame = 0;
     QElapsedTimer m_clock;
     QTimer *m_frame = nullptr;
@@ -274,6 +274,7 @@ private:
     void showGroupMenu();
     void checkCurrentConnection();
     void refreshGroupHeader();
+    void refreshConnectionOrb();
     void updateNotice();
     // Puts the panel, the subscription card and the connect block where the settings say.
     void applyArrangement();
