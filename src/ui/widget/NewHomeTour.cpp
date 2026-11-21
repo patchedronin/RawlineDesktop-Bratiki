@@ -466,19 +466,27 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 DeleteObject(region);
                 return rounded;
             };
-            const auto checkMainCaption = [&](bool custom) {
-                const auto *caption = mw->findChild<QWidget *>(QStringLiteral("rawlineMainCaption"));
-                check(caption && caption->isVisible() == custom && caption->findChildren<QAbstractButton *>().size() == 3,
-                      "the wrong caption is visible");
-                const auto hwnd = reinterpret_cast<HWND>(mainId);
+            const auto checkClientFrame = [&](WId id, bool custom) {
+                const auto hwnd = reinterpret_cast<HWND>(id);
                 RECT window{};
                 POINT client{};
                 check(GetWindowRect(hwnd, &window) && ClientToScreen(hwnd, &client) &&
                       ((client.x == window.left && client.y == window.top) == custom),
                       "the Windows frame did not follow the selected theme");
             };
+            const auto checkMainCaption = [&](bool custom) {
+                const auto *caption = mw->findChild<QWidget *>(QStringLiteral("rawlineMainCaption"));
+                check(caption && caption->isVisible() == custom && caption->findChildren<QAbstractButton *>().size() == 3,
+                      "the wrong caption is visible");
+                checkClientFrame(mainId, custom);
+            };
+            const auto checkDialogCaption = [&](bool custom) {
+                const auto *caption = dialog.findChild<QWidget *>(QStringLiteral("newDialogBar"));
+                check(bool(caption && caption->isVisible()) == custom, "the dialog has the wrong title bar");
+                checkClientFrame(dialogId, custom);
+            };
             checkMainCaption(true);
-            check(hasCaption(dialogId), "new dialog must retain its Windows caption");
+            checkDialogCaption(true);
             check(hasRoundedRegion(mainId) && hasRoundedRegion(dialogId), "new Windows frame is still rectangular");
 #else
             check(dialog.testAttribute(Qt::WA_TranslucentBackground), "new dialog must have a translucent surface");
@@ -493,6 +501,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 check(mw->winId() == mainId && dialog.winId() == dialogId && hasCaption(mainId) && hasCaption(dialogId),
                       "switching with settings open changed the Windows frame");
                 checkMainCaption(false);
+                checkDialogCaption(false);
                 check(!hasRoundedRegion(mainId) && !hasRoundedRegion(dialogId), "Rawline rounding survived the switch to classic");
 #endif
                 check(dialog.contentsMargins() == margins, "title bar space leaked into classic layout");
@@ -504,6 +513,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                       "switching back changed the Windows frame");
                 check(hasRoundedRegion(mainId) && hasRoundedRegion(dialogId), "Rawline rounding did not return");
                 checkMainCaption(true);
+                checkDialogCaption(true);
 #else
                 check(dialog.property("newFrame").toBool(), "existing dialog did not recover the new frame");
 #endif

@@ -17,6 +17,7 @@
 #include "include/global/Utils.hpp"
 
 #include <QApplication>
+#include <QAbstractNativeEventFilter>
 #include <QClipboard>
 #include <QComboBox>
 #include <QMenuBar>
@@ -295,6 +296,45 @@ namespace {
     }
 
 #ifdef Q_OS_WIN
+    bool handleWindowsFrame(QWidget *window, const MSG *msg, qintptr *result) {
+        if (msg->message == WM_NCCALCSIZE && msg->wParam) {
+            if (IsZoomed(msg->hwnd)) {
+                RECT &client = reinterpret_cast<NCCALCSIZE_PARAMS *>(msg->lParam)->rgrc[0];
+                MONITORINFO monitor{sizeof(MONITORINFO)};
+                if (GetMonitorInfoW(MonitorFromRect(&client, MONITOR_DEFAULTTONEAREST), &monitor))
+                    IntersectRect(&client, &client, &monitor.rcWork);
+            }
+            *result = 0;
+            return true;
+        }
+        if (msg->message == WM_NCPAINT || msg->message == WM_NCACTIVATE) {
+            *result = msg->message == WM_NCACTIVATE ? TRUE : 0;
+            return true;
+        }
+        if (msg->message != WM_NCHITTEST) return false;
+        *result = HTCLIENT;
+        if (window->isMaximized() || window->isFullScreen() || window->minimumSize() == window->maximumSize()) return true;
+        const POINT point{short(LOWORD(msg->lParam)), short(HIWORD(msg->lParam))};
+        RECT bounds{};
+        if (GetWindowRect(msg->hwnd, &bounds)) {
+            const int edge = qRound(6 * window->devicePixelRatioF());
+            const bool left = point.x < bounds.left + edge, right = point.x >= bounds.right - edge;
+            const bool top = point.y < bounds.top + edge, bottom = point.y >= bounds.bottom - edge;
+            if (top) *result = left ? HTTOPLEFT : right ? HTTOPRIGHT : HTTOP;
+            else if (bottom) *result = left ? HTBOTTOMLEFT : right ? HTBOTTOMRIGHT : HTBOTTOM;
+            else if (left || right) *result = left ? HTLEFT : HTRIGHT;
+        }
+        return true;
+    }
+
+    void recalculateWindowsFrame(QWidget *window) {
+        if (const auto hwnd = reinterpret_cast<HWND>(window->internalWinId())) {
+            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                         SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            NewStyle::themeFrame(window);
+        }
+    }
+
     void clipNativeFrame(QWidget *window, HWND hwnd, bool themed) {
         const auto previous = window->property("rawlineNativeFrameRegion").toRect();
         if (!themed || window->isMaximized() || window->isFullScreen()) {
@@ -314,7 +354,8 @@ namespace {
             return dwm ? reinterpret_cast<GetAttribute>(GetProcAddress(dwm, "DwmGetWindowAttribute")) : nullptr;
         }();
         RECT frame{};
-        if (!qobject_cast<MainWindow *>(window) && get && SUCCEEDED(get(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, &frame, sizeof frame)) &&
+        if (!qobject_cast<MainWindow *>(window) && !window->property("newFrame").toBool() &&
+            get && SUCCEEDED(get(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, &frame, sizeof frame)) &&
             frame.left >= outer.left && frame.top >= outer.top && frame.right <= outer.right && frame.bottom <= outer.bottom &&
             frame.left < frame.right && frame.top < frame.bottom) visible = frame;
         const QRect bounds(visible.left - outer.left, visible.top - outer.top, visible.right - visible.left, visible.bottom - visible.top);
@@ -337,18 +378,16 @@ namespace {
     constexpr int kDialogBar = 36, kDialogRadius = 14, kDialogGrip = 6;
 
     void frameDialog(QDialog *dialog) {
-#ifdef Q_OS_WIN
-        // Keep the native caption and backing surface when the palette changes.
-        Q_UNUSED(dialog);
-#else
         if (dialog->property("newFrame").toBool()) return;
         const bool shown = dialog->isVisible();
         dialog->setProperty("newFrame", true);
+#ifndef Q_OS_WIN
         dialog->setProperty("newWindowFlags", QVariant::fromValue(dialog->windowFlags()));
         dialog->setWindowFlags(dialog->windowFlags() | Qt::FramelessWindowHint);
         // See-through, so only the round body shows; this also stops the sheet's square background.
         dialog->setAttribute(Qt::WA_TranslucentBackground);
         dialog->setMouseTracking(true);
+#endif
         const QMargins margins = dialog->contentsMargins();
         dialog->setContentsMargins(margins.left(), margins.top() + kDialogBar, margins.right(), margins.bottom());
         auto *bar = new NewTitleBar(dialog);
@@ -357,8 +396,14 @@ namespace {
         const auto buttons = bar->findChildren<QAbstractButton *>();
         if (!buttons.isEmpty()) buttons.first()->hide();
         bar->follow(dialog);
-        if (shown) dialog->show();
+        if (shown) {
+#ifdef Q_OS_WIN
+            recalculateWindowsFrame(dialog);
+            bar->show();
+#else
+            dialog->show();
 #endif
+        }
     }
 
     Qt::Edges dialogEdges(QWidget *dialog, const QPoint &pos) {
@@ -373,17 +418,35 @@ namespace {
 
     void paintDialogBody(QWidget *dialog) {
         QPainter p(dialog);
+#ifdef Q_OS_WIN
+        p.fillRect(dialog->rect(), NewStyle::background());
+#else
         p.setRenderHint(QPainter::Antialiasing);
         p.setPen(QPen(NewStyle::light() ? QColor(0, 0, 0, 40) : QColor(255, 255, 255, 40), 1));
         p.setBrush(NewStyle::background());
         p.drawRoundedRect(QRectF(dialog->rect()).adjusted(.5, .5, -.5, -.5), kDialogRadius, kDialogRadius);
+#endif
     }
 
     // A menu gets round corners, which a stylesheet radius only shows on a window without a background of its own;
     // a list popup and a tooltip get the system's round corners.
-    class MenuCorners : public QObject {
+    class MenuCorners : public QObject
+#ifdef Q_OS_WIN
+        , public QAbstractNativeEventFilter
+#endif
+    {
     public:
         using QObject::QObject;
+#ifdef Q_OS_WIN
+        bool nativeEventFilter(const QByteArray &eventType, void *message, qintptr *result) override {
+            if (!NewStyle::active() || eventType != "windows_generic_MSG") return false;
+            const auto *msg = static_cast<const MSG *>(message);
+            if (msg->message != WM_NCCALCSIZE && msg->message != WM_NCPAINT &&
+                msg->message != WM_NCACTIVATE && msg->message != WM_NCHITTEST) return false;
+            auto *window = QWidget::find(reinterpret_cast<WId>(msg->hwnd));
+            return window && window->property("newFrame").toBool() && handleWindowsFrame(window, msg, result);
+        }
+#endif
     protected:
         bool eventFilter(QObject *watched, QEvent *event) override {
             if (!watched->isWidgetType()) return false;
@@ -419,7 +482,11 @@ namespace {
                     return true;
                 }
                 if (event->type() == QEvent::Resize || event->type() == QEvent::Show) {
+#ifdef Q_OS_WIN
+                    if (event->type() == QEvent::Show) recalculateWindowsFrame(widget);
+#else
                     NewStyle::roundCorners(widget, false);
+#endif
                     if (auto *bar = widget->findChild<QWidget *>(QStringLiteral("newDialogBar"), Qt::FindDirectChildrenOnly)) {
                         bar->setGeometry(10, 0, widget->width() - 16, kDialogBar);
                         bar->raise();
@@ -655,7 +722,13 @@ bool NewStyle::isTheme(const QString &theme) {
 
 void NewStyle::setTheme(const QString &theme) {
     static MenuCorners *corners = nullptr;
-    if (!corners) { corners = new MenuCorners(qApp); qApp->installEventFilter(corners); }
+    if (!corners) {
+        corners = new MenuCorners(qApp);
+        qApp->installEventFilter(corners);
+#ifdef Q_OS_WIN
+        qApp->installNativeEventFilter(corners);
+#endif
+    }
     const bool leaving = isTheme(g_theme) && !isTheme(theme);
     const bool entering = !isTheme(g_theme) && isTheme(theme);
     // Restoring a visible dialog sends Show synchronously; it must already see the incoming theme.
@@ -677,6 +750,9 @@ void NewStyle::setTheme(const QString &theme) {
                 }
                 const QMargins m = widget->contentsMargins();
                 widget->setContentsMargins(m.left(), std::max(0, m.top() - kDialogBar), m.right(), m.bottom());
+#ifdef Q_OS_WIN
+                recalculateWindowsFrame(widget);
+#else
                 widget->setAttribute(Qt::WA_TranslucentBackground, false);
                 widget->setAttribute(Qt::WA_NoSystemBackground, false);
                 widget->clearMask();
@@ -684,6 +760,7 @@ void NewStyle::setTheme(const QString &theme) {
                 widget->setWindowFlags(widget->property("newWindowFlags").value<Qt::WindowFlags>());
                 widget->setProperty("newWindowFlags", QVariant());
                 if (shown) widget->show();
+#endif
             }
         }
     }
@@ -3502,37 +3579,7 @@ void MainWindow::syncWindowFrame() {
 
 #ifdef Q_OS_WIN
 bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
-    if (!NewStyle::active()) return QMainWindow::nativeEvent(eventType, message, result);
-    const auto *msg = static_cast<const MSG *>(message);
-    if (msg->message == WM_NCCALCSIZE && msg->wParam) {
-        if (IsZoomed(msg->hwnd)) {
-            RECT &client = reinterpret_cast<NCCALCSIZE_PARAMS *>(msg->lParam)->rgrc[0];
-            MONITORINFO monitor{sizeof(MONITORINFO)};
-            if (GetMonitorInfoW(MonitorFromRect(&client, MONITOR_DEFAULTTONEAREST), &monitor))
-                IntersectRect(&client, &client, &monitor.rcWork);
-        }
-        *result = 0;
-        return true;
-    }
-    if (msg->message == WM_NCPAINT || msg->message == WM_NCACTIVATE) {
-        *result = msg->message == WM_NCACTIVATE ? TRUE : 0;
-        return true;
-    }
-    if (msg->message == WM_NCHITTEST) {
-        *result = HTCLIENT;
-        if (isMaximized() || isFullScreen()) return true;
-        const POINT point{short(LOWORD(msg->lParam)), short(HIWORD(msg->lParam))};
-        RECT bounds{};
-        if (GetWindowRect(msg->hwnd, &bounds)) {
-            const int edge = qRound(6 * devicePixelRatioF());
-            const bool left = point.x < bounds.left + edge, right = point.x >= bounds.right - edge;
-            const bool top = point.y < bounds.top + edge, bottom = point.y >= bounds.bottom - edge;
-            if (top) *result = left ? HTTOPLEFT : right ? HTTOPRIGHT : HTTOP;
-            else if (bottom) *result = left ? HTBOTTOMLEFT : right ? HTBOTTOMRIGHT : HTBOTTOM;
-            else if (left || right) *result = left ? HTLEFT : HTRIGHT;
-        }
-        return true;
-    }
+    if (NewStyle::active() && handleWindowsFrame(this, static_cast<const MSG *>(message), result)) return true;
     return QMainWindow::nativeEvent(eventType, message, result);
 }
 #endif

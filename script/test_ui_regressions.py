@@ -71,11 +71,12 @@ class InterfaceRegressions(unittest.TestCase):
         self.assertLess(setup.index("trayMenu->setAttribute(Qt::WA_TranslucentBackground);"), setup.index("tray->setContextMenu(trayMenu);"))
         self.assertGreater(setup.index("trayMenu->setAttribute(Qt::WA_TranslucentBackground);"), made)
 
-    def test_windows_keep_the_native_dialog_frame(self):
+    def test_windows_dialog_switches_use_the_same_native_handle(self):
         text = read("src/ui/widget/NewHome.cpp")
-        frame = text.split("void frameDialog(QDialog *dialog)", 1)[1].split("#else", 1)[0]
-        self.assertNotIn("setWindowFlags", frame)
-        self.assertNotIn("WA_TranslucentBackground", frame)
+        frame = text.split("void frameDialog(QDialog *dialog)", 1)[1].split("Qt::Edges dialogEdges", 1)[0]
+        self.assertIn("#ifndef Q_OS_WIN\n        dialog->setProperty", frame)
+        self.assertIn("#ifdef Q_OS_WIN\n            recalculateWindowsFrame(dialog);", frame)
+        self.assertIn('window->property("newFrame").toBool() && handleWindowsFrame', text)
 
     def test_centered_panel_takes_the_whole_column(self):
         text = read("src/ui/widget/NewHome.cpp")
