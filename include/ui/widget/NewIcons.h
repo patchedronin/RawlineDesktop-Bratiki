@@ -82,6 +82,7 @@ inline const NewIconPath newIcon_clock[] = {
 inline const NewIconPath newIcon_speedtest[] = {
     {"M4.2,18 A9,9 0 1 1 19.8,18 M5.94,10 L7.15,10.7 M12,6.5 L12,7.9 M18.06,10 L16.85,10.7 M13.6,13.5 A1.6,1.6 0 1 1 10.4,13.5 A1.6,1.6 0 1 1 13.6,13.5 M12.8,12.1 L15.3,7.8", 1.7f},
 };
+inline const NewIconPath newIcon_chart[] = {{"M3,4 V20 H21 M6,16 L11,11 L15,14 L21,7", 1.8f}};
 inline const NewIconData newIcons[] = {
     {"settings", 24.f, newIcon_settings, 1},
     {"more", 24.f, newIcon_more, 1},
@@ -96,6 +97,7 @@ inline const NewIconData newIcons[] = {
     {"subscriptions", 24.f, newIcon_subscriptions, 1},
     {"update", 24.f, newIcon_update, 1},
     {"logs", 24.f, newIcon_logs, 1},
+    {"chart", 24.f, newIcon_chart, 1},
     {"clipboard", 24.f, newIcon_clipboard, 2},
     {"qr", 24.f, newIcon_qr, 2},
     {"share", 24.f, newIcon_share, 1},

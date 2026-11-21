@@ -90,8 +90,10 @@ public:
     void setSpinning(bool spinning);
     void setTextSize(qreal px) { m_textSize = px; updateGeometry(); update(); }
     void setFlat(bool flat) { m_flat = flat; update(); }
+    void setCompactTab(bool compact);
+    bool compactTab() const { return m_compactTab; }
+    int tabLabelWidth() const;
     QSize sizeHint() const override;
-    // Tabs keep their full titles; text buttons may narrow.
     QSize minimumSizeHint() const override;
 
 protected:
@@ -109,6 +111,7 @@ private:
     bool m_selected = false;
     bool m_hover = false;
     bool m_flat = false;
+    bool m_compactTab = false;
     qreal m_textSize = 14;
     qreal m_press = 0;
     qreal m_angle = 0;
@@ -281,6 +284,8 @@ private:
     void updateSubscriptionScroll();
     // Centered, the column keeps a phone's width in the middle of the window.
     void updateCentering();
+    int fullTabBarWidth() const;
+    void updateTabPresentation();
     void setArranging(bool on);
 
     MainWindow *mw;
@@ -338,6 +343,7 @@ private:
     QVBoxLayout *m_statsLayout = nullptr;
     QWidget *m_empty = nullptr;
     QStackedWidget *m_pages = nullptr;
+    QWidget *m_tabsBar = nullptr;
     QList<NewTile *> m_tabs;
     NewProfileList *m_list = nullptr;
     QTimer *m_tick = nullptr;

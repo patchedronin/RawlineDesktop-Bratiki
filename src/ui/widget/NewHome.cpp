@@ -1011,7 +1011,7 @@ QSize NewTile::sizeHint() const {
     switch (m_kind) {
     case Icon: return m_flat ? QSize(40, 48) : QSize(48, 48);
     case Chip: return {fm.horizontalAdvance(text()) + 16 + 12 + 30, 48};
-    case Tab: return {fm.horizontalAdvance(text()) + 36, 44};
+    case Tab: return {m_compactTab ? 44 : tabLabelWidth(), 44};
     case Text: return m_subtitle.isEmpty() ? QSize(fm.horizontalAdvance(text()) + 24, 52) : QSize(fm.horizontalAdvance(text()) + 32, 60);
     case Pill: return {QFontMetrics(NewStyle::font(m_textSize, QFont::Medium)).horizontalAdvance(text()) + 32, 40};
     }
@@ -1019,7 +1019,19 @@ QSize NewTile::sizeHint() const {
 }
 
 QSize NewTile::minimumSizeHint() const {
+    if (m_kind == Tab && !m_icon.isEmpty()) return {44, 44};
     return m_kind == Text ? QSize(40, sizeHint().height()) : sizeHint();
+}
+
+int NewTile::tabLabelWidth() const {
+    return QFontMetrics(NewStyle::font(m_textSize, QFont::Medium)).horizontalAdvance(text()) + 36;
+}
+
+void NewTile::setCompactTab(bool compact) {
+    if (m_compactTab == compact) return;
+    m_compactTab = compact;
+    updateGeometry();
+    update();
 }
 
 void NewTile::animatePress(qreal to, int duration) {
@@ -1089,6 +1101,13 @@ void NewTile::paintEvent(QPaintEvent *) {
         break;
     }
     case Tab:
+        if (m_compactTab) {
+            QRectF box(0, 0, 22, 22);
+            box.moveCenter(r.center());
+            NewStyle::paintIcon(p, m_icon, box, m_selected || m_hover ? ink : NewStyle::muted());
+            break;
+        }
+        [[fallthrough]];
     case Text: {
         if (!m_subtitle.isEmpty()) {
             p.setFont(NewStyle::font(15, QFont::Bold));
@@ -1961,6 +1980,7 @@ NewHome::NewHome(MainWindow *window) : QWidget(nullptr), mw(window) {
             text->setFont(font);
         }
         if (m_attached) mw->applyTopBarMetrics();
+        updateTabPresentation();
     });
     connect(mw->ui->data_view, &QTextBrowser::textChanged, this, [this] { updateNotice(); });
     connect(mw->ui->stats_widget, &QTabWidget::currentChanged, this, [this](int index) {
@@ -2088,14 +2108,19 @@ void NewHome::buildSide(QVBoxLayout *side) {
 
 void NewHome::buildBody(QVBoxLayout *body) {
     // The desktop's own pages beside the servers: log, connections, traffic and runtime.
-    auto *tabs = new QHBoxLayout;
+    m_tabsBar = new QWidget;
+    m_tabsBar->installEventFilter(this);
+    auto *tabs = new QHBoxLayout(m_tabsBar);
+    tabs->setContentsMargins(0, 0, 0, 0);
     tabs->setSpacing(6);
     QStringList titles{T("Servers")};
+    const QStringList icons{"subscriptions", "logs", "link", "chart", "speedtest"};
     for (int i = 0; i < mw->ui->stats_widget->count(); ++i) titles << mw->ui->stats_widget->tabText(i).remove(QLatin1Char('&'));
     for (int i = 0; i < titles.size(); ++i) {
         auto *tab = new NewTile(NewTile::Tab);
         tab->setText(titles[i]);
-        // Their full titles determine the minimum width for each panel arrangement.
+        tab->setToolTip(titles[i]);
+        tab->setIconName(icons.value(i, QStringLiteral("info")));
         tab->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
         connect(tab, &QAbstractButton::clicked, this, [this, i] { selectTab(i); });
         m_tabs << tab;
@@ -2107,11 +2132,14 @@ void NewHome::buildBody(QVBoxLayout *body) {
     m_sendLogs->setIconName("share");
     m_sendLogs->setToolTip(QCoreApplication::translate("MainWindow", "Send logs"));
     m_sendLogs->setFixedSize(36, 36);
+    auto logButtonPolicy = m_sendLogs->sizePolicy();
+    logButtonPolicy.setRetainSizeWhenHidden(true);
+    m_sendLogs->setSizePolicy(logButtonPolicy);
     m_sendLogs->hide();
     connect(m_sendLogs, &QAbstractButton::clicked, this, [this] { mw->sendLogs(); });
     tabs->addWidget(m_sendLogs);
     body->addSpacing(2);
-    body->addLayout(tabs);
+    body->addWidget(m_tabsBar);
     body->addSpacing(10);
 
     m_pages = new QStackedWidget;
@@ -3029,9 +3057,25 @@ QSize NewHome::windowMinimum() {
 
 void NewHome::updateCentering() {
     const bool centered = Configs::dataManager->settingsRepo->new_layout_panel == QLatin1String("center");
-    const int contentWidth = std::max(480, m_bodyLayout->minimumSize().width());
-    const int margin = centered ? std::max(0, (m_contentScroll->width() - contentWidth) / 2) : 0;
+    const int contentWidth = std::max({480, m_bodyLayout->minimumSize().width(), fullTabBarWidth()});
+    const auto padding = layout()->contentsMargins();
+    // The scroll area is still at its old width when the home widget gets a resize event.
+    const int available = width() - padding.left() - padding.right();
+    const int margin = centered ? std::max(0, (available - contentWidth) / 2) : 0;
     m_columns->setContentsMargins(margin, 0, margin, 0);
+}
+
+int NewHome::fullTabBarWidth() const {
+    if (!m_sendLogs) return 0;
+    int required = m_sendLogs->width() + m_tabs.size() * m_tabsBar->layout()->spacing();
+    for (const auto *tab : m_tabs) required += tab->tabLabelWidth();
+    return required;
+}
+
+void NewHome::updateTabPresentation() {
+    if (!m_sendLogs) return;
+    const bool compact = fullTabBarWidth() > m_tabsBar->width();
+    for (auto *tab : m_tabs) tab->setCompactTab(compact);
 }
 
 void NewHome::updateSubscriptionScroll() {
@@ -3040,6 +3084,7 @@ void NewHome::updateSubscriptionScroll() {
     const bool joined = Configs::dataManager->settingsRepo->new_layout_join_subscription;
     const int width = m_profileColumn->width();
     auto *layout = m_subscriptionHeader->layout();
+    m_profileColumn->setMinimumWidth(layout->minimumSize().width());
     const int height = std::max(0, layout->hasHeightForWidth() ? layout->heightForWidth(width) : layout->sizeHint().height());
     const int rows = m_list->model()->rowCount();
     const int rowHeight = rows ? m_list->sizeHintForRow(0) : 0;
@@ -3185,6 +3230,7 @@ void NewHome::leaveEvent(QEvent *e) {
 }
 
 bool NewHome::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == m_tabsBar && event->type() == QEvent::Resize) updateTabPresentation();
     if ((watched == m_profileColumn && event->type() == QEvent::Resize) ||
         (watched == m_subscriptionHeader && event->type() == QEvent::LayoutRequest)) {
         // Recalculate after the new width and the wrapped labels have been laid out.

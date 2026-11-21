@@ -269,6 +269,11 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             for (const QString panel : {QStringLiteral("left"), QStringLiteral("right"), QStringLiteral("center")}) {
                 Configs::dataManager->settingsRepo->new_layout_panel = panel;
                 home()->applyArrangement();
+                mw->resize(1000, 700);
+                QApplication::processEvents();
+                if (home()->m_tabsBar->width() >= home()->fullTabBarWidth() &&
+                    std::any_of(home()->m_tabs.cbegin(), home()->m_tabs.cend(), [](const auto *tab) { return tab->compactTab(); }))
+                    qFatal("The full tab titles did not return on widening");
                 mw->resize(380, std::min(760, mw->screen()->availableGeometry().height() - 24));
                 QApplication::processEvents();
                 mw->applyTopBarMetrics();
@@ -295,9 +300,25 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                     bounds(h->m_controls).intersects(bounds(h->m_running)) || bounds(h->m_controls).intersects(bounds(h->m_inbound)))
                     qFatal("Connect controls overlap in %s", qPrintable(panel));
                 const QFontMetrics metrics(NewStyle::font(14, QFont::Medium));
-                for (const auto *tab : home()->m_tabs)
-                    if (tab->width() < metrics.horizontalAdvance(tab->text()) + 20)
-                        qFatal("A full tab title does not fit the minimum window in %s", qPrintable(panel));
+                const bool needsIcons = h->fullTabBarWidth() > h->m_tabsBar->width();
+                for (const auto *tab : h->m_tabs) {
+                    if (tab->compactTab() != needsIcons || tab->toolTip() != tab->text() ||
+                        (!needsIcons && tab->width() < metrics.horizontalAdvance(tab->text()) + 20))
+                        qFatal("Tab labels or icons do not fit in %s", qPrintable(panel));
+                }
+                const auto viewportBounds = bounds(h->m_contentScroll->viewport());
+                const auto checkWidth = [&](QWidget *widget) {
+                    const auto r = bounds(widget);
+                    if (r.left() < viewportBounds.left() || r.right() > viewportBounds.right())
+                        qFatal("A control is clipped by the window width in %s", qPrintable(panel));
+                };
+                for (auto *widget : QList<QWidget *>{h->m_chip, h->m_add, h->m_tun, h->m_proxy, h->m_groupMore}) checkWidth(widget);
+                for (auto *tab : h->m_tabs) checkWidth(tab);
+                h->selectTab(1, false);
+                QApplication::processEvents();
+                if (h->m_sendLogs->isVisible()) checkWidth(h->m_sendLogs);
+                h->selectTab(0, false);
+                QApplication::processEvents();
                 h->setArranging(true);
                 QApplication::processEvents();
                 const auto buttons = h->m_arrange->findChildren<QAbstractButton *>(QStringLiteral("arrangeBlockButton"));
