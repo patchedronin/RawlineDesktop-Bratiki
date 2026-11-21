@@ -279,10 +279,15 @@ func launchExtraProcess(session *extraSession, path string, template []string, n
 		}
 		child.EnableStdinShutdown("STOP")
 		child.SetSupervised()
-		health = newTransportHealth(session.backend == "", nil)
+		// FreeTurn keeps its own session watchdog and reports changes, not heartbeats.
+		if session.backend != "freeturn" {
+			health = newTransportHealth(session.backend == "", nil)
+		}
 		child.SetOutputObserver(func(b []byte) {
 			line := string(b)
-			health.accept(line)
+			if health != nil {
+				health.accept(line)
+			}
 			if session.backend == "freeturn" {
 				switch strings.TrimSpace(line) {
 				case "FATAL_FREETURN: Cannot read FreeTurn launch configuration",

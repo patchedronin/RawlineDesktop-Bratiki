@@ -314,7 +314,7 @@ namespace {
             return dwm ? reinterpret_cast<GetAttribute>(GetProcAddress(dwm, "DwmGetWindowAttribute")) : nullptr;
         }();
         RECT frame{};
-        if (get && SUCCEEDED(get(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, &frame, sizeof frame)) &&
+        if (!qobject_cast<MainWindow *>(window) && get && SUCCEEDED(get(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, &frame, sizeof frame)) &&
             frame.left >= outer.left && frame.top >= outer.top && frame.right <= outer.right && frame.bottom <= outer.bottom &&
             frame.left < frame.right && frame.top < frame.bottom) visible = frame;
         const QRect bounds(visible.left - outer.left, visible.top - outer.top, visible.right - visible.left, visible.bottom - visible.top);
@@ -399,7 +399,7 @@ namespace {
                 if (event->type() == QEvent::WinIdChange) widget->setProperty("rawlineNativeFrameRegion", QVariant());
                 if (widget->isVisible() && widget->internalWinId() &&
                     (widget->windowFlags() & Qt::WindowTitleHint) && !(widget->windowFlags() & Qt::FramelessWindowHint))
-                    clipNativeFrame(widget, reinterpret_cast<HWND>(widget->internalWinId()), NewStyle::active());
+                    clipNativeFrame(widget, reinterpret_cast<HWND>(widget->internalWinId()), NewStyle::active() || qobject_cast<MainWindow *>(widget));
             }
 #endif
             if (!NewStyle::active()) return false;
@@ -620,7 +620,8 @@ void NewStyle::themeFrame(QWidget *window) {
         !(window->windowFlags() & Qt::WindowTitleHint) || (window->windowFlags() & Qt::FramelessWindowHint)) return;
     const HWND hwnd = reinterpret_cast<HWND>(window->internalWinId());
     const bool themed = active();
-    clipNativeFrame(window, hwnd, themed);
+    const bool main = qobject_cast<MainWindow *>(window);
+    clipNativeFrame(window, hwnd, themed || main);
     if (!set) return;
     const BOOL dark = themed ? !light() : qApp->palette().color(QPalette::Window).lightness() < 128;
     set(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof dark);
@@ -629,7 +630,8 @@ void NewStyle::themeFrame(QWidget *window) {
     constexpr COLORREF useDefault = 0xffffffff;
     const COLORREF caption = themed ? ref(background()) : useDefault;
     const COLORREF ink = themed ? ref(text()) : useDefault;
-    const COLORREF border = themed ? ref(blend(background(), muted(), .35)) : useDefault;
+    constexpr COLORREF noBorder = 0xfffffffe; // DWMWA_COLOR_NONE
+    const COLORREF border = themed || main ? noBorder : useDefault;
     set(hwnd, 35 /* DWMWA_CAPTION_COLOR */, &caption, sizeof caption);
     set(hwnd, 36 /* DWMWA_TEXT_COLOR */, &ink, sizeof ink);
     set(hwnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
@@ -1472,9 +1474,14 @@ namespace {
             QPainter p(this);
             p.setRenderHint(QPainter::Antialiasing);
             const QRectF r = rect();
-            if (m_hover || isDown()) NewStyle::paintGlass(p, r.adjusted(2, 1, -2, -1), 14, m_kind == Close ? QColor(220, 66, 61) : QColor());
-            if (isDown()) { p.setPen(Qt::NoPen); p.setBrush(NewStyle::overlay(30)); p.drawRoundedRect(r.adjusted(2, 1, -2, -1), 13, 13); }
-            const QColor ink = m_kind == Close && m_hover ? QColor(235, 90, 85) : NewStyle::text();
+            const QColor foreground = NewStyle::active() ? NewStyle::text() : palette().color(QPalette::WindowText);
+            const auto highlight = m_kind == Close ? QColor(220, 66, 61) : foreground;
+            if (m_hover || isDown()) {
+                p.setPen(Qt::NoPen);
+                p.setBrush(withAlpha(highlight, isDown() ? 45 : 25));
+                p.drawRoundedRect(r.adjusted(2, 1, -2, -1), 14, 14);
+            }
+            const QColor ink = m_kind == Close && m_hover ? QColor(235, 90, 85) : foreground;
             p.setPen(QPen(ink, 1.3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
             p.setBrush(Qt::NoBrush);
             const QPointF c = r.center();
@@ -1635,6 +1642,15 @@ bool NewTitleBar::eventFilter(QObject *watched, QEvent *event) {
     if (watched == m_window && event->type() == QEvent::WindowTitleChange) m_title->setText(m_window->windowTitle());
     if (watched == m_window && event->type() == QEvent::WindowIconChange) m_icon->setPixmap(m_window->windowIcon().pixmap(16, 16));
     return QWidget::eventFilter(watched, event);
+}
+
+void NewTitleBar::paintEvent(QPaintEvent *) {
+#ifdef Q_OS_WIN
+    if (NewStyle::active() && m_window && qobject_cast<MainWindow *>(m_window)) {
+        QPainter painter(this);
+        NewStyle::paintBackdrop(painter, QRect(QPoint(), m_window->size()));
+    }
+#endif
 }
 
 bool NewTitleBar::onTopEdge(const QPoint &pos) const {
@@ -2002,10 +2018,9 @@ NewHome::NewHome(MainWindow *window) : QWidget(nullptr), mw(window) {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(16, 0, 16, 16);
     root->setSpacing(0);
+#ifndef Q_OS_WIN
     m_titleBar = new NewTitleBar(this);
     root->addWidget(m_titleBar);
-#ifdef Q_OS_WIN
-    m_titleBar->hide();
 #endif
     m_contentScroll = new QScrollArea(this);
     m_contentScroll->setFrameShape(QFrame::NoFrame);
@@ -2437,7 +2452,7 @@ void NewHome::attach() {
         }
         return slot;
     };
-    m_titleBar->follow(mw);
+    if (m_titleBar) m_titleBar->follow(mw);
     m_dataSlot = find(mw->ui->data_view);
     m_statsSlot = find(mw->ui->stats_widget);
     m_noticeLayout->addWidget(mw->ui->data_view);
@@ -3126,7 +3141,7 @@ QSize NewHome::windowMinimum() {
     layout()->activate();
     const auto outer = layout()->contentsMargins();
     QSize size = m_columns->minimumSize() + QSize(outer.left() + outer.right(),
-        outer.top() + outer.bottom() + (m_titleBar->isHidden() ? 0 : m_titleBar->height()));
+        outer.top() + outer.bottom() + (m_titleBar && !m_titleBar->isHidden() ? m_titleBar->height() : 0));
     size.setHeight(std::max(size.height(), 480));
     if (const auto *display = screen())
         size.setHeight(std::min(size.height(), display->availableGeometry().height() * 3 / 4));
@@ -3267,7 +3282,11 @@ void NewHome::resizeEvent(QResizeEvent *event) {
 
 void NewHome::paintEvent(QPaintEvent *) {
     QPainter p(this);
+#ifdef Q_OS_WIN
+    NewStyle::paintBackdrop(p, QRect(-mapTo(window(), QPoint()), window()->size()));
+#else
     NewStyle::paintBackdrop(p, rect());
+#endif
 }
 
 Qt::Edges NewHome::edgesAt(const QPoint &pos) const {
@@ -3385,10 +3404,30 @@ void MainWindow::applyInterfaceStyle(bool animated) {
         rootStack = new QStackedWidget;
         QWidget *classic = takeCentralWidget();
         rootStack->addWidget(classic);
+#ifdef Q_OS_WIN
+        auto *frame = new QWidget;
+        auto *layout = new QVBoxLayout(frame);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(0);
+        auto *caption = new NewTitleBar(frame);
+        caption->setContentsMargins(14, 0, 6, 0);
+        caption->setObjectName(QStringLiteral("rawlineMainCaption"));
+        caption->follow(this);
+        layout->addWidget(caption);
+        layout->addWidget(rootStack, 1);
+        setCentralWidget(frame);
+#else
         setCentralWidget(rootStack);
+#endif
     }
     setAutoFillBackground(!wantNew);
     rootStack->setAutoFillBackground(!wantNew);
+#ifdef Q_OS_WIN
+    auto framePalette = palette();
+    if (wantNew) framePalette.setColor(QPalette::Window, NewStyle::background());
+    centralWidget()->setPalette(framePalette);
+    centralWidget()->setAutoFillBackground(true);
+#endif
     // The hidden page must not hold the window to its own minimum: the new one goes down to a phone's width.
     if (QWidget *classic = rootStack->widget(0)) {
         classic->setSizePolicy(wantNew ? QSizePolicy::Ignored : QSizePolicy::Preferred, wantNew ? QSizePolicy::Ignored : QSizePolicy::Preferred);
@@ -3423,6 +3462,11 @@ void MainWindow::applyInterfaceStyle(bool animated) {
 
 void MainWindow::syncWindowFrame() {
 #ifdef Q_OS_WIN
+    if (const auto id = internalWinId(); id && property("rawlineCaptionWindow").toULongLong() != quint64(id)) {
+        setProperty("rawlineCaptionWindow", quint64(id));
+        SetWindowPos(reinterpret_cast<HWND>(id), nullptr, 0, 0, 0, 0,
+                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
     NewStyle::themeFrame(this);
 #else
     const bool frameless = NewStyle::active();
@@ -3442,6 +3486,42 @@ void MainWindow::syncWindowFrame() {
     if (frameless) NewStyle::roundCorners(this, false);
 #endif
 }
+
+#ifdef Q_OS_WIN
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
+    const auto *msg = static_cast<const MSG *>(message);
+    if (msg->message == WM_NCCALCSIZE && msg->wParam) {
+        if (IsZoomed(msg->hwnd)) {
+            RECT &client = reinterpret_cast<NCCALCSIZE_PARAMS *>(msg->lParam)->rgrc[0];
+            MONITORINFO monitor{sizeof(MONITORINFO)};
+            if (GetMonitorInfoW(MonitorFromRect(&client, MONITOR_DEFAULTTONEAREST), &monitor))
+                IntersectRect(&client, &client, &monitor.rcWork);
+        }
+        *result = 0;
+        return true;
+    }
+    if (msg->message == WM_NCPAINT || msg->message == WM_NCACTIVATE) {
+        *result = msg->message == WM_NCACTIVATE ? TRUE : 0;
+        return true;
+    }
+    if (msg->message == WM_NCHITTEST) {
+        *result = HTCLIENT;
+        if (isMaximized() || isFullScreen()) return true;
+        const POINT point{short(LOWORD(msg->lParam)), short(HIWORD(msg->lParam))};
+        RECT bounds{};
+        if (GetWindowRect(msg->hwnd, &bounds)) {
+            const int edge = qRound(6 * devicePixelRatioF());
+            const bool left = point.x < bounds.left + edge, right = point.x >= bounds.right - edge;
+            const bool top = point.y < bounds.top + edge, bottom = point.y >= bounds.bottom - edge;
+            if (top) *result = left ? HTTOPLEFT : right ? HTTOPRIGHT : HTTOP;
+            else if (bottom) *result = left ? HTBOTTOMLEFT : right ? HTBOTTOMRIGHT : HTBOTTOM;
+            else if (left || right) *result = left ? HTLEFT : HTRIGHT;
+        }
+        return true;
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+#endif
 
 void MainWindow::arrangeWindow() {
     if (newHome && newHome->attached()) newHome->arrange();

@@ -92,6 +92,9 @@ void MainWindow::changeEvent(QEvent *event) {
 
 void MainWindow::showEvent(QShowEvent *event) {
     QMainWindow::showEvent(event);
+#ifdef Q_OS_WIN
+    syncWindowFrame();
+#endif
     syncConnectionViewState();
     scheduleProxyListRefresh();
 }

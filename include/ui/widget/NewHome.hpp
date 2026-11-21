@@ -176,6 +176,7 @@ public:
     void follow(QWidget *window);
 
 protected:
+    void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *) override;
     void mouseMoveEvent(QMouseEvent *) override;
     void mouseDoubleClickEvent(QMouseEvent *) override;
