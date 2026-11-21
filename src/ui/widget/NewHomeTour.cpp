@@ -405,10 +405,12 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 std::count_if(dialogs.cbegin(), dialogs.cend(), [](const auto *dialog) { return dialog->isVisible(); }) != 1)
                 qFatal("Double-click did not open exactly one profile editor");
             const auto frame = (*editor)->frameGeometry();
+            const auto owner = mw->frameGeometry();
             const auto screen = mw->screen()->availableGeometry();
-            if (!screen.contains(frame) || !mw->frameGeometry().contains(frame.center()) ||
-                qAbs(frame.center().x() - mw->frameGeometry().center().x()) > 24)
-                qFatal("The editor did not open over the main window");
+            if (!screen.contains(frame) || !owner.contains(frame.center()) || qAbs(frame.center().x() - owner.center().x()) > 24)
+                qFatal("Editor %dx%d at (%d,%d), owner %dx%d at (%d,%d), screen %dx%d at (%d,%d)",
+                       frame.width(), frame.height(), frame.x(), frame.y(), owner.width(), owner.height(), owner.x(), owner.y(),
+                       screen.width(), screen.height(), screen.x(), screen.y());
         })};
         s << std::pair{QStringLiteral("edit-freeturn"), std::function<void()>([mw] {
             auto *editor = new DialogEditProfile("freeturn", Configs::dataManager->settingsRepo->current_group, mw);

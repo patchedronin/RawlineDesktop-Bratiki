@@ -63,6 +63,7 @@
 #include <QStandardItemModel>
 #include <QScrollArea>
 #include <QScreen>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
@@ -280,6 +281,8 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
         self->ensurePolished();
         self->fitToContent(true);
         self->show();
+        // Windows reports the non-client frame once the native dialog is shown.
+        QTimer::singleShot(0, self.data(), [self] { if (self && self->isVisible()) self->fitToContent(true); });
     }, this);
 }
 
@@ -436,7 +439,8 @@ void DialogEditProfile::fitToContent(bool centerOnParent) {
     const auto *owner = parentWidget() ? parentWidget()->window() : nullptr;
     const auto *display = centerOnParent && owner ? owner->screen() : screen();
     const auto available = display->availableGeometry().adjusted(12, 32, -12, -24);
-    resize(preferred.boundedTo(available.size()));
+    const QSize decoration = frameSize() - size();
+    resize(preferred.boundedTo(available.size() - decoration));
     const QSize frame = frameSize();
     const QPoint position = centerOnParent && owner
         ? owner->frameGeometry().center() - QPoint(frame.width() / 2, frame.height() / 2)
