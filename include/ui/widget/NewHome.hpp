@@ -63,9 +63,9 @@ namespace NewStyle {
     void paintGlass(QPainter &p, const QRectF &r, qreal radius, const QColor &tint = QColor());
     void paintIcon(QPainter &p, const QString &name, const QRectF &box, const QColor &color);
     QIcon icon(const QString &name, const QColor &color);
-    // The flat square flag of a profile name's leading flag, or a null pixmap.
-    QPixmap flag(const QString &leading, int size, qreal dpr);
-    QString leadingFlag(const QString &name);
+    // Same first-flag rule as the mobile server list. Changes only the displayed name.
+    QString takeProfileFlag(QString &name);
+    QPixmap flag(const QString &emoji, int size, qreal dpr);
 
     // Fusion with the new style's own check boxes, radio buttons and menu ticks.
     QStyle *createStyle();

@@ -919,10 +919,15 @@ QIcon NewStyle::icon(const QString &name, const QColor &color) {
     return result;
 }
 
-QString NewStyle::leadingFlag(const QString &name) {
+QString NewStyle::takeProfileFlag(QString &name) {
     static const QRegularExpression flag(QStringLiteral(
-        "^(?:[\\x{1F1E6}-\\x{1F1FF}]{2}|[\\x{1F3F3}\\x{1F3F4}\\x{1F6A9}\\x{1F38C}\\x{2690}\\x{2691}]\\x{FE0F}?(?:\\x{200D}[^\\s]+|[\\x{E0061}-\\x{E007F}]+)?)"));
-    return flag.match(name).captured(0);
+        "[\\x{1F1E6}-\\x{1F1FF}]{2}|[\\x{1F3F3}\\x{1F3F4}\\x{1F6A9}\\x{1F38C}\\x{2690}\\x{2691}]\\x{FE0F}?(?:(?:\\x{200D}\\p{So}\\x{FE0F}?)+|[\\x{E0061}-\\x{E007F}]+)?"));
+    const auto match = flag.match(name);
+    if (!match.hasMatch()) return {};
+    const QString emoji = match.captured();
+    name.remove(match.capturedStart(), match.capturedLength()).replace(QStringLiteral("  "), QStringLiteral(" "));
+    name = name.trimmed();
+    return emoji;
 }
 
 QPixmap NewStyle::flag(const QString &leading, int size, qreal dpr) {
@@ -939,11 +944,27 @@ QPixmap NewStyle::flag(const QString &leading, int size, qreal dpr) {
         if (!art.isNull()) art = art.scaled(px, px, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     }
     if (art.isNull()) {
-        // A flag with no picture of its own, drawn by the emoji font; the black one is just black.
+        const bool plain = ucs.size() == 1 || (ucs.size() == 2 && ucs[1] == 0xFE0F);
+        const bool black = plain && ucs[0] == 0x1F3F4;
         art = QPixmap(px, px);
-        art.fill(leading.startsWith(QString::fromUcs4(U"\U0001F3F4")) && ucs.size() <= 2 ? QColor(0, 0, 0) : QColor(0, 0, 0, 0));
-        if (!(leading.startsWith(QString::fromUcs4(U"\U0001F3F4")) && ucs.size() <= 2)) {
-            QPainter p(&art);
+        art.fill(black ? Qt::black : Qt::transparent);
+        QPainter p(&art);
+        if (plain && ucs[0] == 0x1F3F3) {
+            // The system emoji font can draw a hollow flag on Windows.
+            p.setRenderHint(QPainter::Antialiasing);
+            p.scale(px / 24.0, px / 24.0);
+            QPainterPath cloth;
+            cloth.moveTo(5, 5);
+            cloth.cubicTo(10, 1, 15, 8, 20, 4);
+            cloth.lineTo(20, 14);
+            cloth.cubicTo(15, 18, 10, 11, 5, 15);
+            cloth.closeSubpath();
+            p.setBrush(Qt::white);
+            p.setPen(QPen(QColor(110, 110, 116), 1, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            p.drawPath(cloth);
+            p.setPen(QPen(QColor(164, 164, 172), 1.4, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(QPointF(5, 4), QPointF(5, 21));
+        } else if (!black) {
             QFont f = qApp->font();
             f.setPixelSize(qRound(px * .72));
             p.setFont(f);
@@ -1607,14 +1628,12 @@ void NewProfileDelegate::paint(QPainter *p, const QStyleOptionViewItem &option, 
         p->drawRoundedRect(row.adjusted(.5, .5, -.5, -.5), 20, 20);
     }
     QString name = index.siblingAtColumn(ProfilesTableModel::ColName).data().toString().trimmed();
-    // Only a country flag leaves the name for the badge; a white or other flag stays in it.
-    QString leading = NewStyle::leadingFlag(name);
-    const auto leadingUcs = leading.toUcs4();
-    if (leadingUcs.size() == 2 && leadingUcs[0] >= 0x1F1E6 && leadingUcs[0] <= 0x1F1FF && leadingUcs[1] >= 0x1F1E6 && leadingUcs[1] <= 0x1F1FF)
-        name = name.mid(leading.size()).trimmed();
-    else leading.clear();
+    const auto emoji = NewStyle::takeProfileFlag(name);
     const QRectF badge(row.left() + 10, row.center().y() - 14, 28, 28);
-    const QPixmap flag = NewStyle::flag(leading, 28, p->device()->devicePixelRatioF());
+    p->setPen(Qt::NoPen);
+    p->setBrush(NewStyle::solid());
+    p->drawRoundedRect(badge, 10, 10);
+    const QPixmap flag = NewStyle::flag(emoji, 28, p->device()->devicePixelRatioF());
     if (!flag.isNull()) {
         QPainterPath clip;
         clip.addRoundedRect(badge, 10, 10);

@@ -53,7 +53,7 @@ namespace {
         "vless://11111111-1111-1111-1111-111111111111@203.0.113.10:443?security=reality&type=tcp&sni=example.com&pbk=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY&sid=01#%F0%9F%87%B8%F0%9F%87%AA%20se-tcp-reality\n"
         "vless://11111111-1111-1111-1111-111111111111@203.0.113.11:443?security=tls&type=xhttp&sni=example.com#%F0%9F%87%B7%F0%9F%87%BA%20ru-xhttp-tls\n"
         "hysteria2://secret@203.0.113.12:443?sni=example.com#%F0%9F%87%A9%F0%9F%87%AA%20de-hy2\n"
-        "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpzZWNyZXQ@203.0.113.13:8388#nl-ss\n";
+        "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpzZWNyZXQ@203.0.113.13:8388#nl-ss%20%F0%9F%8F%B3%EF%B8%8F\n";
 
     struct Tour {
         MainWindow *mw;
@@ -138,6 +138,14 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
 
     s << std::pair{QString(), std::function<void()>([tour] {
         tour->clear();
+        auto name = QStringLiteral("Server \U0001F3F3\uFE0F Example \U0001F1E9\U0001F1EA");
+        const auto white = NewStyle::takeProfileFlag(name);
+        if (white != QStringLiteral("\U0001F3F3\uFE0F") || name != QStringLiteral("Server Example \U0001F1E9\U0001F1EA") ||
+            NewStyle::flag(white, 28, 1).toImage().pixelColor(13, 10) != QColor(Qt::white))
+            qFatal("The white flag did not move from the name into the badge");
+        name = QStringLiteral("Pride \U0001F3F3\uFE0F\u200D\U0001F308Server");
+        if (NewStyle::takeProfileFlag(name) != QStringLiteral("\U0001F3F3\uFE0F\u200D\U0001F308") || name != QStringLiteral("Pride Server"))
+            qFatal("A joined flag swallowed part of the profile name");
         Subscription::updater()->ImportText(QString::fromUtf8(kSampleLinks));
         // Local sample data only: display the subscription routing row without fetching a subscription.
         if (const auto group = Configs::dataManager->groupsRepo->CurrentGroup()) group->url = QStringLiteral("https://subscription.example.invalid");
