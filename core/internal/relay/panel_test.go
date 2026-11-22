@@ -270,7 +270,7 @@ func TestPanelStatusParsesInstallerJSON(t *testing.T) {
 func TestPanelCheckReportsInstallerVerdict(t *testing.T) {
 	f := startFakeVPS(t, "ssh-secret", installerHandler(t))
 	s := panelServer(f)
-	for k, v := range map[string]string{"role": "combined", "protocols": "wdtt,dnstt", "access": "nginx", "domain": "Panel.Example.org", "email": "", "dnsZone": "t.example.org", "dnsNs": "ns.example.org"} {
+	for k, v := range map[string]string{"role": "combined", "protocols": "wdtt,mrtt,dnstt", "access": "nginx", "domain": "Panel.Example.org", "email": "", "dnsZone": "t.example.org", "dnsNs": "ns.example.org"} {
 		s[k] = v
 	}
 	events, _, e := runPanel(t, "check", "", s)
@@ -283,7 +283,7 @@ func TestPanelCheckReportsInstallerVerdict(t *testing.T) {
 	}
 	commands, _ := f.seen()
 	commands[0] = plain(commands[0])
-	want := "env WDTT_PROTOCOLS='wdtt,dnstt' WDTT_FRONTEND=nginx WDTT_DOMAIN='panel.example.org' WDTT_CERT_EMAIL='' "
+	want := "env WDTT_PROTOCOLS='wdtt,mrtt,dnstt' WDTT_FRONTEND=nginx WDTT_DOMAIN='panel.example.org' WDTT_CERT_EMAIL='' "
 	if !strings.Contains(commands[0], want) || !strings.Contains(commands[0], "WDTT_DNS_ZONE='t.example.org'") ||
 		!strings.Contains(commands[0], "WDTT_DNS_NS='ns.example.org'") || !strings.Contains(commands[0], "bash /root/wdtt-install.sh check combined'") {
 		t.Fatalf("check command %q", commands[0])

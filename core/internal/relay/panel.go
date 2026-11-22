@@ -17,7 +17,7 @@ import (
 const panelInstaller = "https://raw.githubusercontent.com/ttrroyy/wdtt-panel/main/install.sh"
 
 var panelProtocols = map[string]bool{
-	"wdtt": true, "qwdtt": true, "wdtt-plus": true, "csqtt-2.1.9": true, "csqtt-2.5.0": true, "freeturn": true,
+	"wdtt": true, "qwdtt": true, "wdtt-plus": true, "csqtt-2.1.9": true, "csqtt-2.5.0": true, "freeturn": true, "mrtt": true,
 	"csqtt-2.5.3-community": true, "dnstt": true, "vaydns": true, "slipstream": true, "masterdns": true,
 	"cottendns": true, "soar": true, "openflux": true,
 }

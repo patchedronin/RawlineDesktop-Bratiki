@@ -67,6 +67,7 @@ const QList<Protocol> &protocolList() {
     static const QList<Protocol> list{
         {"wdtt", "WDTT", 0}, {"qwdtt", "qWDTT", 0}, {"wdtt-plus", "WDTT Plus", 0}, {"csqtt-2.1.9", "CSQTT 2.1.9", 0},
         {"csqtt-2.5.0", "CSQTT 2.5.0", 0}, {"csqtt-2.5.3-community", "CSQTT 2.5.3 (community)", 0}, {"freeturn", "FreeTurn", 0},
+        {"mrtt", "MRTT", 0},
         {"dnstt", "DNSTT", 1}, {"vaydns", "VayDNS", 1}, {"slipstream", "Slipstream", 1}, {"masterdns", "MasterDNS / StormDNS", 1},
         {"cottendns", "CottenDNS", 1}, {"soar", "Soar", 1}, {"openflux", "OpenFlux Direct", 2},
     };
