@@ -340,8 +340,12 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 const auto viewportBounds = bounds(h->m_contentScroll->viewport());
                 const auto checkWidth = [&](QWidget *widget) {
                     const auto r = bounds(widget);
-                    if (r.left() < viewportBounds.left() || r.right() > viewportBounds.right())
-                        qFatal("A control is clipped by the window width in %s", qPrintable(panel));
+                    if (r.left() < viewportBounds.left() || r.right() > viewportBounds.right()) {
+                        const auto *button = qobject_cast<QAbstractButton *>(widget);
+                        const auto label = button ? button->text() : widget->objectName();
+                        qFatal("Control '%s' is clipped in %s: x=%d..%d viewport=%d..%d", qPrintable(label),
+                               qPrintable(panel), r.left(), r.right(), viewportBounds.left(), viewportBounds.right());
+                    }
                 };
                 for (auto *widget : QList<QWidget *>{h->m_chip, h->m_add, h->m_tun, h->m_proxy, h->m_groupMore}) checkWidth(widget);
                 for (auto *tab : h->m_tabs) checkWidth(tab);

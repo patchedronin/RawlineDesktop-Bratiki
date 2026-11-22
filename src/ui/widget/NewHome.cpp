@@ -2307,6 +2307,10 @@ void NewHome::buildBody(QVBoxLayout *body) {
     m_sendLogs->hide();
     connect(m_sendLogs, &QAbstractButton::clicked, this, [this] { mw->sendLogs(); });
     tabs->addWidget(m_sendLogs);
+    // Reserve room for the compact tabs and the log action even while the action is hidden.
+    int compactWidth = m_sendLogs->minimumWidth() + m_tabs.size() * tabs->spacing();
+    for (const auto *tab : m_tabs) compactWidth += tab->minimumSizeHint().width();
+    m_tabsBar->setMinimumWidth(compactWidth);
     body->addSpacing(2);
     body->addWidget(m_tabsBar);
     body->addSpacing(10);
@@ -3238,6 +3242,10 @@ QSize NewHome::windowMinimum() {
     // The centering margins follow the window's width: counted in, the window could never narrow.
     const QMargins room = m_columns->contentsMargins();
     size.rwidth() -= room.left() + room.right();
+    const int tabsWidth = m_tabsBar->minimumWidth();
+    const bool centered = m_columns->direction() == QBoxLayout::TopToBottom;
+    const int contentWidth = centered ? tabsWidth : m_side->minimumWidth() + m_columns->spacing() + tabsWidth;
+    size.setWidth(std::max(size.width(), contentWidth + outer.left() + outer.right()));
     return size;
 }
 
