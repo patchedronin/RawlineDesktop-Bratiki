@@ -300,10 +300,14 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 auto *h = home();
                 QFile trace(QDir(dir).filePath("layout-geometry.txt"));
                 if (trace.open(QIODevice::WriteOnly | QIODevice::Append)) {
-                    QTextStream(&trace) << panel << " window=" << mw->width() << 'x' << mw->height()
+                    QTextStream out(&trace);
+                    out << panel << " window=" << mw->width() << 'x' << mw->height()
                         << " homeHeight=" << h->height() << " minimumHeight=" << h->minimumHeight()
                         << " sideY=" << h->m_side->y() << " sideHeight=" << h->m_side->height()
-                        << " bodyY=" << h->m_bodyLayout->geometry().top() << '\n';
+                        << " bodyY=" << h->m_bodyLayout->geometry().top()
+                        << " tabs=" << h->m_tabsBar->width() << '/' << h->fullTabBarWidth();
+                    for (const auto *tab : h->m_tabs) out << ' ' << tab->x() << ':' << tab->width() << ':' << tab->compactTab();
+                    out << '\n';
                 }
                 const auto bounds = [h](QWidget *widget) { return QRect(widget->mapTo(h, QPoint()), widget->size()); };
                 const QRect orb = bounds(h->m_orb), tun = bounds(h->m_tun), proxy = bounds(h->m_proxy);

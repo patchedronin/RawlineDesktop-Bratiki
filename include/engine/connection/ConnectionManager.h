@@ -75,6 +75,7 @@ namespace Engine {
         int resolveLastProfile() const;
 
         int lastProfileId() const;
+        int pendingProfileId() const;
 
         quint64 nextStartSerial();
 
@@ -175,6 +176,7 @@ namespace Engine {
         // Main thread only.
         int m_lastProfileId = -1;
         bool m_profileConnecting = false;
+        int m_startingProfileId = -1;
         bool m_startCancelRpcPending = false;
         StartRequest m_startAfterCancel;
         void cancelStartingProfile();

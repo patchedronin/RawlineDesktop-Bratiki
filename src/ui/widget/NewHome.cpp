@@ -1773,7 +1773,7 @@ void NewProfileDelegate::paint(QPainter *p, const QStyleOptionViewItem &option, 
     const bool hover = option.state & QStyle::State_MouseOver;
     const int id = index.data(ProfilesTableModel::ProfileIdRole).toInt();
     const QColor ink = NewStyle::text(), dim = NewStyle::muted();
-    NewStyle::paintGlass(*p, row, 20, id == runningId ? ink : QColor());
+    NewStyle::paintGlass(*p, row, 20, id == (pendingId >= 0 ? pendingId : runningId) ? ink : QColor());
     if (hover || selected) {
         p->setPen(Qt::NoPen);
         p->setBrush(NewStyle::overlay(hover && selected ? 16 : 10));
@@ -2143,6 +2143,7 @@ NewHome::NewHome(MainWindow *window) : QWidget(nullptr), mw(window) {
     });
     connect(mw->ui->tabWidget, &QTabWidget::currentChanged, this, [this] { groupChanged(); });
     connect(mw->ui->toolButton_startstop, &StartStopButton::stateChanged, this, &NewHome::refreshConnectionOrb);
+    connect(mw->connection(), &Engine::ConnectionManager::busyChanged, this, &NewHome::refreshConnectionOrb);
     connect(themeManager(), &ThemeManager::themeChanged, this, [this] {
         const auto family = NewStyle::font(14).family();
         for (auto *text : findChildren<QLabel *>()) {
@@ -2473,7 +2474,8 @@ void NewHome::buildBody(QVBoxLayout *body) {
     m_list->editRequested = [this](const QModelIndex &index) { mw->on_profilesTableView_doubleClicked(index); };
     m_list->activateRequested = [this](const QModelIndex &index) {
         const int id = index.data(ProfilesTableModel::ProfileIdRole).toInt();
-        if (!mw->select_mode && id != m_list->rowDelegate->runningId) mw->profile_start(id);
+        if (!mw->select_mode && (m_list->rowDelegate->pendingId >= 0 || id != m_list->rowDelegate->runningId))
+            mw->profile_start(id);
     };
     connect(m_list, &QListView::clicked, this, [this](const QModelIndex &index) {
         if (QGuiApplication::keyboardModifiers() & (Qt::ControlModifier | Qt::ShiftModifier)) return;
@@ -2683,6 +2685,11 @@ void NewHome::refreshGroupHeader() {
 
 void NewHome::refreshConnectionOrb() {
     if (!m_attached) return;
+    const int pendingId = mw->connection()->pendingProfileId();
+    if (m_list->rowDelegate->pendingId != pendingId) {
+        m_list->rowDelegate->pendingId = pendingId;
+        m_list->viewport()->update();
+    }
     auto *button = mw->ui->toolButton_startstop;
     const auto state = button->state();
     const bool connected = state == StartStopButton::State::Running;
@@ -3262,6 +3269,9 @@ void NewHome::updateTabPresentation() {
         tabs->setStretch(i, compact ? 1 : 0);
     }
     tabs->setStretch(m_tabs.size(), compact ? 0 : 1);
+    if (auto *spacer = tabs->itemAt(m_tabs.size())->spacerItem())
+        spacer->changeSize(0, 0, compact ? QSizePolicy::Fixed : QSizePolicy::Expanding, QSizePolicy::Minimum);
+    tabs->invalidate();
 }
 
 void NewHome::updateSubscriptionScroll() {

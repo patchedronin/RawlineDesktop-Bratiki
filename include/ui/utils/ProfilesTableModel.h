@@ -19,6 +19,9 @@ public:
     // GeoCountryRole: the stored ISO code of the egress country from the last IP or speed test.
     enum { ProfileIdRole = Qt::UserRole, TestStateRole, TestCountryRole, TestSinceRole, GeoCountryRole, PinnedRole };
     void setTestState(const QList<int> &ids, int state, const QString &country = {}, const QString &text = {});
+    void clearLatencyTestAnimations();
+    bool hasLatencyTestAnimation(const QList<int> &ids) const;
+    void setPendingProfileId(int id);
     // A repeated latency test starts the rows' spinners over.
     void restartTestAnimation(const QList<int> &ids);
 
@@ -86,6 +89,7 @@ public:
 
 private:
     QHash<int, QPair<int, QString>> testStates;
+    int m_pendingProfileId = -1;
     QHash<int, QString> testProgressText;
     QHash<int, qint64> testSince;
     void ensureCached(int profileId) const;

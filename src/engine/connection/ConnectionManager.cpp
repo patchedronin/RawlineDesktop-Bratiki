@@ -90,11 +90,16 @@ namespace Engine {
             emit startFinished(request.serial, request.profileId, StartOutcome::Exiting, {});
             return;
         }
-        if (m_profileConnecting || m_startCancelRpcPending) {
+        if (m_profileConnecting || m_startCancelRpcPending || m_profileDisconnecting) {
+            if (request.profileId == pendingProfileId()) {
+                emit startFinished(request.serial, request.profileId, StartOutcome::Superseded, {});
+                return;
+            }
             if (m_startAfterCancel.profileId >= 0)
                 emit startFinished(m_startAfterCancel.serial, m_startAfterCancel.profileId, StartOutcome::Superseded, {});
             m_startAfterCancel = request;
             if (m_profileConnecting) cancelStartingProfile();
+            emit busyChanged();
             return;
         }
 
@@ -364,6 +369,7 @@ namespace Engine {
 
         m_cancelStarting = false;
         m_profileConnecting = true;
+        m_startingProfileId = resolved.profileId;
         syncState();
         emit busyChanged();
 
@@ -386,8 +392,7 @@ namespace Engine {
             runOnUiThread([=, this] {
                 slowStart.dismiss();
                 m_profileConnecting = false;
-                syncState();
-                emit busyChanged();
+                m_startingProfileId = -1;
                 if (started) {
                     emit runMarker(markerAt, switching ? RunMarker::Switched : RunMarker::Started,
                                    ent->outbound ? ent->outbound->DisplayName() : ent->name);
@@ -399,6 +404,8 @@ namespace Engine {
                     return;
                 }
                 startAfterCancellation();
+                syncState();
+                emit busyChanged();
             });
         });
     }
@@ -416,6 +423,8 @@ namespace Engine {
                     return;
                 }
                 startAfterCancellation();
+                syncState();
+                emit busyChanged();
             });
         });
     }
@@ -677,8 +686,12 @@ namespace Engine {
         return m_lastProfileId;
     }
 
+    int ConnectionManager::pendingProfileId() const {
+        return m_startAfterCancel.profileId >= 0 ? m_startAfterCancel.profileId : m_startingProfileId;
+    }
+
     ConnectionState ConnectionManager::connectionState() const {
-        if (m_profileConnecting) return ConnectionState::Connecting;
+        if (m_profileConnecting || (m_startCancelRpcPending && m_startAfterCancel.profileId >= 0)) return ConnectionState::Connecting;
         if (m_profileDisconnecting) return ConnectionState::Stopping;
         return runningSnapshot() != nullptr ? ConnectionState::Running : ConnectionState::Idle;
     }

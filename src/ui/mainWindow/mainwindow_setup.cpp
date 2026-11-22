@@ -118,6 +118,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     connect(host->stats(), &Engine::StatsService::connectionsUpdated, this, &MainWindow::UpdateConnectionList);
     connect(host->connection(), &Engine::ConnectionManager::statusChanged, this, [this] { refresh_status(); });
     connect(host->connection(), &Engine::ConnectionManager::busyChanged, this, &MainWindow::refresh_startstop_button);
+    connect(host->connection(), &Engine::ConnectionManager::busyChanged, this, [this] {
+        profilesTableModel->setPendingProfileId(connection()->pendingProfileId());
+    });
     connect(host->connection(), &Engine::ConnectionManager::profileRowsChanged, this, [this](const QList<int> &ids) { refresh_proxy_list(ids); });
     connect(host->connection(), &Engine::ConnectionManager::runMarker, this, &MainWindow::addRunMarker);
     connect(host->connection(), &Engine::ConnectionManager::restartReasonsChanged, this, &MainWindow::showRestartReasons);
@@ -1026,11 +1029,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         }
     });
     connect(ui->actionClear_Test_Result, &QAction::triggered, this, [=, this]() { clear_test_results(get_now_selected_list()); });
-    connect(ui->actionUrl_Test_Selected, &QAction::triggered, this, [=,this]() {
-        tests()->runUrlTests(get_now_selected_list());
+    const auto stopTestsNow = [this] {
+        ui->menu_stop_testing->setEnabled(false);
+        tests()->stop();
+        profilesTableModel->clearLatencyTestAnimations();
+        dataViewHtmlGenerator_.markTestsStopping();
+        UpdateDataView(true);
+    };
+    const auto togglePing = [this, stopTestsNow](const QList<int> &ids) {
+        if (profilesTableModel->hasLatencyTestAnimation(ids)) stopTestsNow();
+        else if (!tests()->isRunning() || !tests()->stopRequested()) tests()->runUrlTests(ids);
+    };
+    connect(ui->actionUrl_Test_Selected, &QAction::triggered, this, [this, togglePing]() {
+        togglePing(get_now_selected_list());
     });
-    connect(ui->actionUrl_Test_Group, &QAction::triggered, this, [=,this]() {
-        tests()->runUrlTests(Configs::dataManager->groupsRepo->CurrentGroup()->Profiles());
+    connect(ui->actionUrl_Test_Group, &QAction::triggered, this, [togglePing]() {
+        if (const auto group = Configs::dataManager->groupsRepo->CurrentGroup()) togglePing(group->Profiles());
     });
     connect(ui->actionSpeedtest_Current, &QAction::triggered, this, [=,this]()
     {
@@ -1073,13 +1087,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         if (const auto group = Configs::dataManager->groupsRepo->CurrentGroup()) startServiceChecks(group->Profiles());
     });
     ui->menu_stop_testing->setEnabled(false);
-    connect(ui->menu_stop_testing, &QAction::triggered, this, [this]() {
-        ui->menu_stop_testing->setEnabled(false);
-        dataViewHtmlGenerator_.markTestsStopping();
-        UpdateDataView(true);
-        // StopTests is a blocking RPC.
-        runOnNewThread([runner = tests()] { runner->stop(); });
-    });
+    connect(ui->menu_stop_testing, &QAction::triggered, this, stopTestsNow);
     auto set_selected_or_group = [=,this](int mode) {
         // 0=group 1=select 2=unknown(menu is hide)
         ui->menu_server->setProperty("selected_or_group", mode);

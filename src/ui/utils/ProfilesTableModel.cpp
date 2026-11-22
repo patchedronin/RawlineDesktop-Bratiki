@@ -13,6 +13,7 @@
 #include <QMimeData>
 #include <QPalette>
 #include <QRegularExpression>
+#include <algorithm>
 
 #include "include/configs/generate.h"
 #include "include/database/ProfilesRepo.h"
@@ -32,6 +33,26 @@ void ProfilesTableModel::setTestState(const QList<int> &ids, int state, const QS
 void ProfilesTableModel::restartTestAnimation(const QList<int> &ids) {
     setTestState(ids, 0);
     setTestState(ids, 1);
+}
+
+void ProfilesTableModel::clearLatencyTestAnimations() {
+    QList<int> pending;
+    for (auto it = testStates.cbegin(); it != testStates.cend(); ++it)
+        if (it.value().first == 1) pending.append(it.key());
+    setTestState(pending, 0);
+}
+
+bool ProfilesTableModel::hasLatencyTestAnimation(const QList<int> &ids) const {
+    return std::any_of(ids.cbegin(), ids.cend(), [this](int id) { return testStates.value(id).first == 1; });
+}
+
+void ProfilesTableModel::setPendingProfileId(int id) {
+    if (m_pendingProfileId == id) return;
+    const int running = Configs::dataManager->settingsRepo->started_id;
+    const int previous = m_pendingProfileId >= 0 ? m_pendingProfileId : running;
+    m_pendingProfileId = id;
+    refreshProfileId(previous);
+    refreshProfileId(id >= 0 ? id : running);
 }
 
 int ProfilesTableModel::rowCount(const QModelIndex &parent) const {
@@ -135,7 +156,7 @@ QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
     if (role == GeoCountryRole) return profile->test_country;
 
     const int startedId = Configs::dataManager->settingsRepo->started_id;
-    const bool isRunning = (profile->id == startedId);
+    const bool isRunning = profile->id == (m_pendingProfileId >= 0 ? m_pendingProfileId : startedId);
     const ThemeTokens &tokens = themeManager()->tokens;
     QColor linkColor = !isRunning                  ? QColor()
                        : tokens.runningRow.isValid() ? tokens.onRunningRow
