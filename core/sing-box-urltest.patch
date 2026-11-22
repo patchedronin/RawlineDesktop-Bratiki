@@ -115,7 +115,7 @@
 @@ -243,8 +249,10 @@
  				dialerString = " using outbound/" + outbound.Type() + "[" + outbound.Tag() + "]"
  			}
- 			err = E.Cause(err, "listen packet connection using ", dialerString)
+ 			err = E.Cause(err, "listen packet connection", dialerString)
 -			m.deleteURLTestHistory(metadata.OutboundChain)
 -			notifyDialFailure(metadata.OutboundChain, N.NetworkUDP, err)
 +			if ctx.Err() == nil {
