@@ -55,8 +55,10 @@ namespace Configs
             const auto is = [key](QStringView name) { return key.compare(name, Qt::CaseInsensitive) == 0; };
             if (is(u"upload")) {
                 result.upload = value;
+                result.has_quota = true;
             } else if (is(u"download")) {
                 result.download = value;
+                result.has_quota = true;
             } else if (is(u"total")) {
                 result.total = value;
                 result.has_quota = true;
