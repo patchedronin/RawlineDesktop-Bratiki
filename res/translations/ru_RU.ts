@@ -7457,6 +7457,14 @@ Improves hole-punching reliability. Requires IPv4.</source>
         <source>UUID</source>
         <translation>UUID</translation>
     </message>
+    <message>
+        <source>Cert Chain SHA256</source>
+        <translation>SHA256 цепочки сертификатов</translation>
+    </message>
+    <message>
+        <source>Certificate chain hash printed by juicity-server; replaces CA verification, even with Allow insecure</source>
+        <translation>Хеш цепочки сертификатов, который выводит juicity-server; заменяет проверку по CA, даже при «Не проверять сертификат (Allow insecure)»</translation>
+    </message>
 </context>
 <context>
     <name>EditMasque</name>
@@ -17710,6 +17718,14 @@ Remove that endpoint from this routing profile as well?</source>
     <message>
         <source>A category of the geosite.dat or geoip.dat of a Happ / Incy routing profile; other routing profiles cannot load it.</source>
         <translation>Категория из geosite.dat или geoip.dat профиля маршрутизации Happ / Incy; другие профили её загрузить не могут.</translation>
+    </message>
+    <message>
+        <source>Use the 32-byte certificate chain hash in base64 (44 characters ending in =), as juicity-server prints it.</source>
+        <translation>Укажите 32-байтовый хеш цепочки сертификатов в base64 (44 символа, в конце =), как его выводит juicity-server.</translation>
+    </message>
+    <message>
+        <source>The certificate chain pin replaces certificate verification; clear the TLS certificate and certificate pins.</source>
+        <translation>Хеш цепочки сертификатов заменяет проверку сертификата; очистите сертификат TLS и закрепление сертификатов.</translation>
     </message>
 </context>
 <context>

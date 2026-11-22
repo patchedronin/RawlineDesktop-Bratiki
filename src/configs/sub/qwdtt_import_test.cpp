@@ -9,6 +9,8 @@
 #include "include/ui/utils/TestResultDelegate.hpp"
 #include "include/ui/widget/RestartNotice.hpp"
 #include <QStandardItemModel>
+#include <QUrlQuery>
+#include <algorithm>
 #include "include/configs/outbounds/qwdtt.h"
 #include "include/ui/setting/dialog_servers.h"
 #include "include/configs/outbounds/csqtt.h"
@@ -18,6 +20,7 @@
 #include "include/configs/outbounds/vless.h"
 #include "include/configs/outbounds/trojan.h"
 #include "include/configs/outbounds/hysteria.h"
+#include "include/configs/outbounds/juicity.h"
 #include "include/configs/outbounds/openflux.h"
 #include "include/configs/outbounds/olcrtc.h"
 #include "include/configs/outbounds/dnstunnel.h"
@@ -104,6 +107,26 @@ int TestQwdttImport() {
         Configs::qwdtt fromNull;
         check(fromNull.ParseFromJson(nullable) && !fromNull.rawPortProvided && !fromNull.directPortProvided &&
               !fromNull.customTurnIpsProvided, "null subscription fields are absent, not resets");
+    }
+    {
+        const auto pin = QString::fromLatin1(QByteArray(32, char(0xff)).toBase64());
+        Configs::juicity profile, restored;
+        auto url = QUrl(QStringLiteral("juicity://11111111-1111-4111-8111-111111111111:demo@example.test:443"));
+        QUrlQuery query;
+        query.addQueryItem("pinned_certchain_sha256", pin);
+        url.setQuery(query);
+        check(profile.ParseFromLink(url.toString(QUrl::FullyEncoded)) && profile.pinned_certchain_sha256 == pin,
+              "Juicity reads the certificate chain pin");
+        check(restored.ParseFromLink(profile.ExportToLink()) && restored.pinned_certchain_sha256 == pin &&
+              restored.ParseFromJson(profile.ExportToJson()) && restored.Build().object["pinned_certchain_sha256"] == pin,
+              "Juicity retains the pin in share links, stored profiles and core config");
+        check(!Configs::Checks::JuicityPinnedCertChain(QString(64, QChar('a'))).isEmpty(), "Juicity rejects an ambiguous hex pin");
+        profile.tls->certificate_sha256 << pin;
+        Validation::Issues issues;
+        profile.Validate(issues);
+        check(std::any_of(issues.cbegin(), issues.cend(), [](const auto &issue) {
+            return issue.field == "pinned_certchain_sha256" && issue.severity == Validation::Severity::Error;
+        }), "Juicity rejects a chain pin combined with a certificate pin");
     }
     for (const QString extra : {QStringLiteral("null"), QStringLiteral("{}"), QString()}) {
         Configs::ParseDiag::Scope diagnostics;
