@@ -979,7 +979,7 @@ namespace Subscription {
         }
 
         void Parser::documentBody(std::string_view text, bool needParse, int depth, const QString &overrideName) {
-            if (text.find("proxies:") != npos) {
+            if (text.find("proxies:") != npos || text.find("proxy-providers:") != npos) {
                 clash(text);
                 return;
             }
@@ -1267,9 +1267,12 @@ namespace Subscription {
 
         void Parser::clash(std::string_view text) {
             try {
-                const fkyaml::node root = fkyaml::node::deserialize(sanitizeClashYaml(text));
+                auto root = fkyaml::node::deserialize(sanitizeClashYaml(text));
+                int remaining = 200000;
+                if (root.is_mapping() && root.contains("<<")) root = resolveClashNode(root, 0, remaining);
                 const bool mapping = root.is_mapping();
-                if (!mapping || !root.contains("proxies") || !root["proxies"].is_sequence() || root["proxies"].empty()) {
+                const fkyaml::node *proxies = mapping && root.contains("proxies") ? &root["proxies"] : nullptr;
+                if (proxies == nullptr || !proxies->is_sequence() || proxies->empty()) {
                     const auto message = mapping && root.contains("proxy-providers")
                         ? QCoreApplication::translate("Validation", "This Clash config only lists proxy-providers, which are not downloaded. Add each provider's URL as a subscription instead.")
                         : QCoreApplication::translate("Validation", "This Clash config has no proxies list.");
@@ -1279,8 +1282,7 @@ namespace Subscription {
 
                 int index = 0;
                 // Anchors and merge keys resolved per entry, with one budget for the whole list.
-                int remaining = 200000;
-                for (const auto &node : root["proxies"]) {
+                for (const auto &node : *proxies) {
                     ++index;
                     QString reason;
                     try {

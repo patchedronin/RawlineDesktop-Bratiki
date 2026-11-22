@@ -21,6 +21,7 @@
 #include "include/configs/outbounds/trojan.h"
 #include "include/configs/outbounds/hysteria.h"
 #include "include/configs/outbounds/juicity.h"
+#include "include/configs/outbounds/trusttunnel.h"
 #include "include/configs/outbounds/openflux.h"
 #include "include/configs/outbounds/olcrtc.h"
 #include "include/configs/outbounds/dnstunnel.h"
@@ -127,6 +128,18 @@ int TestQwdttImport() {
         check(std::any_of(issues.cbegin(), issues.cend(), [](const auto &issue) {
             return issue.field == "pinned_certchain_sha256" && issue.severity == Validation::Severity::Error;
         }), "Juicity rejects a chain pin combined with a certificate pin");
+    }
+    {
+        const auto key = QStringLiteral("0123456789abcdef");
+        Configs::trusttunnel profile, restored;
+        check(profile.ParseFromLink(QStringLiteral("trusttunnel://tester:demo@example.test:443?client_random_auth_key=") + key) &&
+              profile.client_random_auth_key == key, "TrustTunnel reads the client auth key");
+        check(restored.ParseFromLink(profile.ExportToLink()) && restored.client_random_auth_key == key &&
+              restored.ParseFromJson(profile.ExportToJson()) && restored.Build().object["client_random_auth_key"] == key,
+              "TrustTunnel retains the auth key in share links, stored profiles and core config");
+        check(!Configs::Checks::TrustTunnelClientRandomAuthKeySni(false, false, QStringLiteral("192.0.2.1")).isEmpty() &&
+              !Configs::Checks::TrustTunnelClientRandomPair(true, true).isEmpty(),
+              "TrustTunnel refuses IP SNI and competing Client Random options");
     }
     for (const QString extra : {QStringLiteral("null"), QStringLiteral("{}"), QString()}) {
         Configs::ParseDiag::Scope diagnostics;
@@ -889,6 +902,31 @@ proxies:
                 wg->content_padding_addition == "30-84" && wg->random_trailers && wg->peer->port == 500, "Clash WireGuard and AWG3 settings preserved");
             check(yaml[1]->Masque() && yaml[1]->Masque()->http_version == 3 && yaml[1]->Masque()->disable_version_fallback &&
                 yaml[2]->Masque() && yaml[2]->Masque()->http_version == 2 && yaml[2]->Masque()->tls->server_name == "4pda.to", "Clash MASQUE templates retain HTTP version and SNI");
+        }
+        const auto nestedPeers = parse(R"yaml(base: &base
+  proxies:
+  - type: wireguard
+    name: WireGuard peers
+    server: 192.0.2.100
+    port: 100
+    private-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    ip: 172.16.0.2
+    workers: 2
+    reserved: [1, 2, 3]
+    peers:
+    - server: 192.0.2.7
+      port: 51820
+      public-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      allowed-ips: [10.0.0.0/8, 'fd00::/8']
+<<: *base
+)yaml");
+        check(nestedPeers.size() == 1, "Clash imports proxies inherited by the document root");
+        if (nestedPeers.size() == 1) {
+            const auto *wg = nestedPeers.first()->Wireguard();
+            check(wg && wg->peer->address == "192.0.2.7" && wg->peer->port == 51820 &&
+                wg->peer->AllowedNetworks() == QStringList{"10.0.0.0/8", "fd00::/8"} &&
+                wg->peer->reserved == QList<int>{1, 2, 3} && wg->worker_count == 2,
+                "Clash WireGuard preserves the peer endpoint, AllowedIPs, reserved bytes and workers");
         }
         Configs::masque invalid;
         check(!invalid.ParseFromLink("masque://key@192.0.2.1?address=not-ip") &&

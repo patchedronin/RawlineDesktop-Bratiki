@@ -8,9 +8,11 @@
 
 #include "include/configs/ParseDiagnostics.h"
 #include "include/configs/common/utils.h"
+#include "include/configs/sub/clash.hpp"
 
 #include <algorithm>
 #include <limits>
+#include <optional>
 #include <tuple>
 #include <utility>
 
@@ -48,6 +50,37 @@ namespace Configs {
             addresses = kept;
         }
 
+
+        bool wireguardClashHasReserved(const std::optional<clash::WgReserved>& reserved) {
+            return reserved && (!reserved->value.empty() || !reserved->text.empty());
+        }
+
+        // As in Peer::ParseFromJson, a value that is not exactly three bytes is dropped.
+        void wireguardClashReserved(const clash::WgReserved& reserved, QList<int>& bytes) {
+            QStringList values;
+            for (const auto byte : reserved.value) values << QString::number(byte);
+            const QString text = values.isEmpty() ? QString::fromStdString(reserved.text) : values.join(',');
+            if (const auto message = Checks::WireguardReserved(text, &bytes); !message.isEmpty()) AcceptOptional("reserved", message, text);
+        }
+
+        // GFW-knocker Xray sends no noise for "none" or for a custom header that is not hex.
+        bool wireguardNoiseOn(const QString& wnoise) {
+            if (wnoise.isEmpty() || wnoise == QLatin1String("none")) return false;
+            for (const auto preset : {"quic", "quicv1", "quicinit", "random"}) {
+                if (wnoise == QLatin1String(preset)) return true;
+            }
+            return Validation::Hex(wnoise.left(100), 0, 0, false, Validation::Empty::Required).isEmpty();
+        }
+
+        // GFW-knocker Xray's "n" or "lo-hi" in either order, capped as it caps them; anything else is its default.
+        std::pair<int, int> wireguardNoiseRange(const std::string& text, qint64 low, qint64 high, qint64 cap) {
+            if (const QStringList parts = QString::fromStdString(text).split(u'-'); parts.size() <= 2) {
+                const auto from = Validation::ToInt(parts.first());
+                const auto to = Validation::ToInt(parts.last());
+                if (from && to && *from >= 0 && *to >= 0) low = *from, high = *to;
+            }
+            return {int(std::min({low, high, cap})), int(std::min(std::max(low, high), cap))};
+        }
     }
 
     namespace Checks {
@@ -520,28 +553,86 @@ namespace Configs {
     bool wireguard::ParseFromClash(const clash::Proxies& object) {
         if (object.type != "wireguard") return false;
         outbound::ParseFromClash(object);
-        private_key = QString::fromStdString(object.private_key);
+        private_key = QString::fromStdString(object.private_key).trimmed();
         peer = std::make_shared<Peer>();
-        peer->address = server; peer->port = server_port;
-        peer->public_key = QString::fromStdString(object.public_key);
-        peer->pre_shared_key = QString::fromStdString(object.pre_shared_key);
-        peer->persistent_keepalive = QString::fromStdString(object.persistent_keepalive);
-        if (object.reserved) for (const auto value : object.reserved->value) peer->reserved << value;
         address.clear();
-        for (const auto& ip : {object.ip, object.ipv6}) if (!ip.empty()) address << QString::fromStdString(ip);
-        if (object.mtu > 0) mtu = object.mtu;
-        QJsonObject options;
-        if (object.amnezia_wg_option.is_mapping()) for (const auto& entry : object.amnezia_wg_option.as_map()) {
-            auto key = QString::fromStdString(entry.first.get_value<std::string>()).replace('-', '_');
-            const auto& value = entry.second;
-            if (value.is_boolean()) options[key] = value.get_value<bool>();
-            else if (value.is_integer()) {
-                const auto integer = value.get_value<long long>();
-                options[key] = key.startsWith('h') ? QJsonValue(QString::number(integer)) : QJsonValue(qint64(integer));
-            } else if (value.is_string()) options[key] = QString::fromStdString(value.get_value<std::string>());
+
+        // mihomo dials only the peers when there are any, and ignores the proxy-wide endpoint and keys.
+        const QString peerField = object.peers.empty() ? QString() : QStringLiteral("peers[0].");
+        if (object.peers.empty()) {
+            peer->address = server;
+            peer->port = server_port;
+            peer->public_key = QString::fromStdString(object.public_key).trimmed();
+            peer->pre_shared_key = QString::fromStdString(object.pre_shared_key).trimmed();
+            if (wireguardClashHasReserved(object.reserved)) wireguardClashReserved(*object.reserved, peer->reserved);
+        } else {
+            const auto& first = object.peers.front();
+            peer->address = toAceHost(QString::fromStdString(first.server));
+            peer->port = first.port;
+            peer->public_key = QString::fromStdString(first.public_key).trimmed();
+            peer->pre_shared_key = QString::fromStdString(first.pre_shared_key).trimmed();
+            // mihomo's bind falls back to the proxy-wide reserved for a peer without its own.
+            const auto& reserved = wireguardClashHasReserved(first.reserved) ? first.reserved : object.reserved;
+            if (wireguardClashHasReserved(reserved)) wireguardClashReserved(*reserved, peer->reserved);
+            QStringList allowedIps;
+            for (const auto& ip : first.allowed_ips) allowedIps << QString::fromStdString(ip).remove(' ').split(',', Qt::SkipEmptyParts);
+            if (!allowedIps.isEmpty() && !peer->SetAllowedNetworks(allowedIps)) return false;
+            if (object.peers.size() > 1) {
+                ParseDiag::Warn("peers", QCoreApplication::translate("Validation", "Only the first of the %1 peers is used.").arg(object.peers.size()));
+            }
+            server = peer->address;
+            server_port = peer->port;
         }
-        AmneziaFromJson(options);
+
+        const bool mihomoKeepalive = !object.persistent_keepalive.empty();
+        const auto keepalive = QString::fromStdString(mihomoKeepalive ? object.persistent_keepalive : object.keepalive).trimmed();
+        if (!keepalive.isEmpty() && wireguardKeep(mihomoKeepalive ? "persistent-keepalive" : "keepalive", keepalive, Checks::WireguardKeepalive)) {
+            peer->persistent_keepalive = keepalive;
+        }
+
+        for (const auto* ip : {&object.ip, &object.ipv6}) address << QString::fromStdString(*ip).remove(' ').split(',', Qt::SkipEmptyParts);
+        if (object.mtu > 0) mtu = object.mtu;
+        if (object.workers > 0) worker_count = object.workers;
+
+        const auto& awg = object.amnezia_wg_option;
+        if (awg) {
+            enable_amnezia = true;
+            for (const auto &[key, text, target, max, mustMatchServer] :
+                 {std::tuple{"jc", &awg->jc, &jc, kWireguardIntMax, false}, std::tuple{"jmin", &awg->jmin, &jmin, kWireguardIntMax, false},
+                  std::tuple{"jmax", &awg->jmax, &jmax, kWireguardIntMax, false}, std::tuple{"s1", &awg->s1, &s1, qint64(65535), true},
+                  std::tuple{"s2", &awg->s2, &s2, qint64(65535), true}, std::tuple{"s3", &awg->s3, &s3, qint64(65535), true},
+                  std::tuple{"s4", &awg->s4, &s4, qint64(65535), true}}) {
+                if (!text->empty()) *target = wireguardAmneziaInt(QStringLiteral("amnezia-wg-option.") + key, QString::fromStdString(*text), max, mustMatchServer);
+            }
+            for (const auto &[text, target] :
+                 {std::pair{&awg->h1, &h1}, std::pair{&awg->h2, &h2}, std::pair{&awg->h3, &h3}, std::pair{&awg->h4, &h4}, std::pair{&awg->i1, &i1},
+                  std::pair{&awg->i2, &i2}, std::pair{&awg->i3, &i3}, std::pair{&awg->i4, &i4}, std::pair{&awg->i5, &i5},
+                  std::pair{&awg->header_protection_key, &header_protection_key}, std::pair{&awg->content_padding_addition, &content_padding_addition},
+                  std::pair{&awg->rekey_after_time, &rekey_after_time}, std::pair{&awg->rekey_timeout, &rekey_timeout},
+                  std::pair{&awg->reject_after_time, &reject_after_time}, std::pair{&awg->keepalive_timeout, &keepalive_timeout},
+                  std::pair{&awg->max_handshake_attempts, &max_handshake_attempts}}) {
+                if (!text->empty()) *target = QString::fromStdString(*text).trimmed();
+            }
+            random_trailers = awg->random_trailers;
+            disable_cookies = awg->disable_cookies;
+        }
+        // GFW-knocker noise datagrams precede each handshake, as AmneziaWG junk packets do; explicit junk settings win.
+        if (const QString wnoise = QString::fromStdString(object.wnoise).trimmed(); wireguardNoiseOn(wnoise)) {
+            if (const int count = wireguardNoiseRange(object.wnoisecount, 1, 2, 50).second; count > 0) {
+                if (wnoise == QLatin1String("quicinit")) dialFields->quic_opener = true;
+                if (!awg || (awg->jc.empty() && awg->jmin.empty() && awg->jmax.empty())) {
+                    std::tie(jmin, jmax) = wireguardNoiseRange(object.wpayloadsize, 5, 10, 100);
+                    jc = count;
+                    enable_amnezia = true;
+                }
+            }
+        }
+
         FixAddress();
+        wireguardDropBadAddresses(address);
+        if (private_key.isEmpty()) ParseDiag::Error("private-key", Validation::Required(private_key));
+        if (peer->public_key.isEmpty()) ParseDiag::Error(peerField + "public-key", Validation::Required(peer->public_key));
+        if (server.isEmpty()) ParseDiag::Error(peerField + "server", QCoreApplication::translate("Validation", "The server address is missing."));
         return !private_key.isEmpty() && !peer->public_key.isEmpty() && !peer->address.isEmpty() &&
             peer->port > 0 && peer->port <= 65535 && !address.isEmpty();
     }
