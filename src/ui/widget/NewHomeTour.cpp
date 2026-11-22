@@ -170,8 +170,10 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             if (auto *h = home(); h && h->m_list->model() && h->m_list->model()->rowCount() > 1) h->m_list->setCurrentIndex(h->m_list->model()->index(1, 0));
         })};
 #ifdef Q_OS_WIN
-        s << std::pair{QString(), std::function<void()>([home, mw] {
-            const auto buttons = home()->m_titleBar->findChildren<QAbstractButton *>(QString(), Qt::FindDirectChildrenOnly);
+        s << std::pair{QString(), std::function<void()>([mw] {
+            const auto *caption = mw->findChild<QWidget *>(QStringLiteral("rawlineMainCaption"));
+            if (!caption || !caption->isVisible()) qFatal("The Rawline title bar is not visible");
+            const auto buttons = caption->findChildren<QAbstractButton *>(QString(), Qt::FindDirectChildrenOnly);
             if (buttons.size() != 3) qFatal("The window caption is missing its controls");
             const auto hwnd = reinterpret_cast<HWND>(mw->winId());
             buttons[1]->click();
