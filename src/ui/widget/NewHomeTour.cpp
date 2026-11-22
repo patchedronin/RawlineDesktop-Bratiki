@@ -169,6 +169,21 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
         s << std::pair{QStringLiteral("home"), std::function<void()>([home] {
             if (auto *h = home(); h && h->m_list->model() && h->m_list->model()->rowCount() > 1) h->m_list->setCurrentIndex(h->m_list->model()->index(1, 0));
         })};
+#ifdef Q_OS_WIN
+        s << std::pair{QString(), std::function<void()>([home, mw] {
+            const auto buttons = home()->m_titleBar->findChildren<QAbstractButton *>(QString(), Qt::FindDirectChildrenOnly);
+            if (buttons.size() != 3) qFatal("The window caption is missing its controls");
+            const auto hwnd = reinterpret_cast<HWND>(mw->winId());
+            buttons[1]->click();
+            if (!IsZoomed(hwnd)) qFatal("The caption maximize command did not maximize");
+            buttons[1]->click();
+            if (IsZoomed(hwnd)) qFatal("The caption restore command did not restore");
+            buttons[0]->click();
+            if (!IsIconic(hwnd)) qFatal("The caption minimize command did not minimize");
+            SendMessageW(hwnd, WM_SYSCOMMAND, SC_RESTORE, 0);
+            if (IsIconic(hwnd)) qFatal("The shell restore command did not restore");
+        })};
+#endif
         s << std::pair{QStringLiteral("switching-orb"), std::function<void()>([home, mw] {
             auto *button = mw->ui->toolButton_startstop;
             button->setState(StartStopButton::State::Disconnecting);

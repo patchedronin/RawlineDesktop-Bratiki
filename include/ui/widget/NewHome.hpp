@@ -287,6 +287,7 @@ private:
     // Centered, the column keeps a phone's width in the middle of the window.
     void updateCentering();
     int fullTabBarWidth() const;
+    void scrollSubscription();
     void updateTabPresentation();
     void setArranging(bool on);
 

@@ -1682,6 +1682,22 @@ namespace {
     }
 }
 
+namespace {
+    void changeWindowSize(QWidget *window, bool minimize) {
+#ifdef Q_OS_WIN
+        if (const auto id = window->internalWinId()) {
+            // Use Windows' caption commands so the shell animates the transition with its current settings.
+            const WPARAM command = minimize ? SC_MINIMIZE : window->isMaximized() ? SC_RESTORE : SC_MAXIMIZE;
+            SendMessageW(reinterpret_cast<HWND>(id), WM_SYSCOMMAND, command, 0);
+            return;
+        }
+#endif
+        if (minimize) window->showMinimized();
+        else if (window->isMaximized()) window->showNormal();
+        else window->showMaximized();
+    }
+}
+
 NewTitleBar::NewTitleBar(QWidget *parent) : QWidget(parent) {
     setFixedHeight(36);
     setMouseTracking(true);
@@ -1704,8 +1720,8 @@ NewTitleBar::NewTitleBar(QWidget *parent) : QWidget(parent) {
     minimize->setToolTip(T("Minimize"));
     maximize->setToolTip(T("Maximize"));
     close->setToolTip(T("Close"));
-    connect(minimize, &QAbstractButton::clicked, this, [this] { window()->showMinimized(); });
-    connect(maximize, &QAbstractButton::clicked, this, [this] { window()->isMaximized() ? window()->showNormal() : window()->showMaximized(); });
+    connect(minimize, &QAbstractButton::clicked, this, [this] { changeWindowSize(window(), true); });
+    connect(maximize, &QAbstractButton::clicked, this, [this] { changeWindowSize(window(), false); });
     connect(close, &QAbstractButton::clicked, this, [this] { window()->close(); });
     row->addWidget(minimize);
     row->addWidget(maximize);
@@ -1754,7 +1770,7 @@ void NewTitleBar::mouseMoveEvent(QMouseEvent *e) {
 void NewTitleBar::mouseDoubleClickEvent(QMouseEvent *e) {
     // A dialog's bar only moves it.
     if (qobject_cast<QDialog *>(window())) return;
-    if (e->button() == Qt::LeftButton) window()->isMaximized() ? window()->showNormal() : window()->showMaximized();
+    if (e->button() == Qt::LeftButton) changeWindowSize(window(), false);
 }
 
 // ---------------------------------------------------------------- the server list
@@ -2044,8 +2060,8 @@ void NewProfileList::wheelEvent(QWheelEvent *event) {
     }
     if (!m_scroll) {
         m_scroll = new QVariantAnimation(this);
-        m_scroll->setDuration(160);
-        m_scroll->setEasingCurve(QEasingCurve::OutCubic);
+        m_scroll->setDuration(180);
+        m_scroll->setEasingCurve(QEasingCurve::OutQuad);
         connect(m_scroll, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
             (m_joinedScroll ? m_joinedScroll : verticalScrollBar())->setValue(qRound(value.toReal()));
         });
@@ -2490,7 +2506,9 @@ void NewHome::buildBody(QVBoxLayout *body) {
         mw->ui->menu_server->popup(m_list->viewport()->mapToGlobal(pos));
     });
     column->addWidget(m_list, 1);
-    connect(m_subscriptionScroll, &QScrollBar::valueChanged, this, &NewHome::updateSubscriptionScroll);
+    connect(m_subscriptionScroll, &QScrollBar::valueChanged, this, [this] {
+        if (!m_updatingSubscriptionScroll) scrollSubscription();
+    });
     connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int value) {
         if (!m_updatingSubscriptionScroll && Configs::dataManager->settingsRepo->new_layout_join_subscription &&
             (value > 0 || m_subscriptionScroll->value() > m_subscriptionHeader->height()))
@@ -3299,12 +3317,23 @@ void NewHome::updateSubscriptionScroll() {
     m_subscriptionScroll->setSingleStep(m_list->verticalScrollBar()->singleStep());
     m_subscriptionScroll->setRange(0, maximum);
     m_subscriptionScroll->setVisible(maximum > 0);
-    const int offset = std::min(height, m_subscriptionScroll->value());
-    m_subscriptionClip->setFixedHeight(height - offset);
-    m_subscriptionClip->setVisible(offset < height);
-    m_subscriptionHeader->setGeometry(0, -offset, width, height);
-    m_profileColumn->layout()->activate();
-    if (joined) m_list->verticalScrollBar()->setValue(m_subscriptionScroll->value() - offset);
+    m_subscriptionHeader->resize(width, height);
+    scrollSubscription();
+}
+
+void NewHome::scrollSubscription() {
+    const QScopedValueRollback guard(m_updatingSubscriptionScroll, true);
+    const int height = m_subscriptionHeader->height();
+    const int value = m_subscriptionScroll->value();
+    const int offset = std::min(height, value);
+    const int visibleHeight = height - offset;
+    if (m_subscriptionClip->minimumHeight() != visibleHeight || m_subscriptionClip->isHidden() != (visibleHeight == 0)) {
+        m_subscriptionClip->setFixedHeight(visibleHeight);
+        m_subscriptionClip->setVisible(visibleHeight > 0);
+        m_profileColumn->layout()->activate();
+    }
+    m_subscriptionHeader->move(0, -offset);
+    if (Configs::dataManager->settingsRepo->new_layout_join_subscription) m_list->verticalScrollBar()->setValue(value - offset);
 }
 
 void NewHome::applyArrangement() {
