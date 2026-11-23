@@ -171,6 +171,10 @@ private:
     QString m_elapsed;
     qreal m_wave = .3, m_spin = 0, m_lit = 0, m_angle = 0, m_phase = 0, m_pressScale = 1, m_opacity = 1;
     qint64 m_axPhase = 0;
+    qint64 m_lastFrame = 0;
+    QElapsedTimer m_clock;
+    QTimer *m_frame = nullptr;
+    QVariantAnimation *m_pressAnim = nullptr;
     bool m_courtyard = true;
     void paintCourtyard(QPainter &p, const QPointF &c, qreal base);
     void paintHatch(QPainter &p, const QPointF &c, qreal base);

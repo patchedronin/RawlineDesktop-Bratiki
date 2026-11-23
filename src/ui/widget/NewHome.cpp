@@ -779,6 +779,7 @@ void NewStyle::setTheme(const QString &theme) {
 bool NewStyle::active() { return isTheme(g_theme); }
 bool NewStyle::light() { return g_theme == QLatin1String(WhiteTheme) || g_theme == QLatin1String(PastelLightTheme); }
 bool NewStyle::pastel() { return g_theme == QLatin1String(PastelTheme) || g_theme == QLatin1String(PastelLightTheme); }
+static bool greyPalette() { return g_theme == QLatin1String(NewStyle::GreyTheme); }
 
 static NewStyle::CustomTheme g_customTheme;
 static bool g_customValid = false;

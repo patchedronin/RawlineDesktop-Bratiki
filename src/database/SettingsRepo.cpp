@@ -197,8 +197,6 @@ namespace Configs {
             {"new_power_furnace",      &new_power_furnace},
             {"new_power_snow",         &new_power_snow},
             {"warp_masque_http_mode",  &warp_masque_http_mode},
-            {"new_power_skin",         &new_power_skin},
-            {"custom_theme_json",      &custom_theme_json},
         };
 
         stringMap = {
