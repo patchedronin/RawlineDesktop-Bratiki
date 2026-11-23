@@ -1,0 +1,40 @@
+name: Publish Bratiki release from CI run
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Completed build.yml run ID
+        required: true
+        type: string
+      tag:
+        description: Release tag (e.g. rawline-1.2.1)
+        required: true
+        default: rawline-1.2.1
+        type: string
+jobs:
+  publish:
+    if: github.repository == 'patchedronin/RawlineDesktop-Bratiki'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Download Pack artifacts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id }}
+          pattern: Pack-*
+          path: packs
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          ls -lh packs/
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target dev --title "Rawline Братики 1.2.1" --notes-file release-notes-bratiki.md
+          gh release upload "$TAG" packs/* --clobber
+          gh release edit "$TAG" --latest
