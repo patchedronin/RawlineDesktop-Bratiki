@@ -986,6 +986,9 @@
   <property name="text"><string>Seasonal decoration</string></property>
  </widget>
 </item>
+           <item row="1" column="1">
+ <widget class="QComboBox" name="seasonal_decoration"/>
+</item>
            <item row="4" column="0">
  <widget class="QLabel" name="label_power_skin">
   <property name="text"><string>Connect button appearance</string></property>
