@@ -1,3 +1,4 @@
+# Bratiki desktop
 name: qWDTT tests
 on:
   push:

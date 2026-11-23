@@ -1,3 +1,4 @@
+# Bratiki desktop release build (fork of ttrroyy/Rawline)
 name: Rawline release
 on:
   workflow_dispatch:
