@@ -23,6 +23,11 @@
 #include <QMenuBar>
 #include <QStyledItemDelegate>
 #include <QGroupBox>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <QJsonObject>
+#include <QJsonValue>
+#include <QLoggingCategory>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QPlainTextEdit>
@@ -775,32 +780,88 @@ bool NewStyle::active() { return isTheme(g_theme); }
 bool NewStyle::light() { return g_theme == QLatin1String(WhiteTheme) || g_theme == QLatin1String(PastelLightTheme); }
 bool NewStyle::pastel() { return g_theme == QLatin1String(PastelTheme) || g_theme == QLatin1String(PastelLightTheme); }
 
-static bool greyPalette() { return g_theme == QLatin1String(NewStyle::GreyTheme); }
+static NewStyle::CustomTheme g_customTheme;
+static bool g_customValid = false;
+static QString g_customRaw;
+
+const NewStyle::CustomTheme *NewStyle::customTheme() {
+    const QString &raw = Configs::dataManager->settingsRepo->custom_theme_json;
+    if (raw == g_customRaw) return g_customValid ? &g_customTheme : nullptr;
+    g_customRaw = raw;
+    g_customValid = false;
+    g_customTheme = {};
+    if (raw.trimmed().isEmpty()) return nullptr;
+    const auto err = [raw](const char *what) { qWarning("Custom theme ignored (%s): %.80s", what, qUtf8Printable(raw)); return nullptr; };
+    QJsonParseError parse{};
+    const auto doc = QJsonDocument::fromJson(raw.toUtf8(), &parse);
+    if (parse.error != QJsonParseError::NoError || !doc.isObject()) return err("not valid JSON");
+    const auto o = doc.object();
+    const auto color = [&o](const char *key) {
+        const auto v = o.value(QLatin1String(key));
+        if (!v.isString()) return QColor();
+        const QColor c(v.toString());
+        return c.isValid() ? c : QColor();
+    };
+    g_customTheme.name = o.value(QLatin1String("name")).toString();
+    if (g_customTheme.name.isEmpty()) g_customTheme.name = QObject::tr("Theme");
+    g_customTheme.background = color("background");
+    g_customTheme.surface = color("surface");
+    g_customTheme.solid = color("solid");
+    g_customTheme.toolbar = color("toolbar");
+    g_customTheme.text = color("text");
+    g_customTheme.muted = color("muted");
+    g_customTheme.well = color("well");
+    g_customTheme.frosted = color("frosted");
+    g_customTheme.accent = color("accent");
+    g_customTheme.light = g_customTheme.background.isValid() && g_customTheme.background.lightness() > 128;
+    g_customValid = true;
+    return &g_customTheme;
+}
 
 QColor NewStyle::background() {
+    if (const auto *c = customTheme())
+        if (c->background.isValid()) return c->background;
     if (greyPalette()) return QColor(35, 37, 41);
     if (pastel()) return light() ? QColor(255, 228, 214) : QColor(22, 20, 31);
     return light() ? QColor(255, 255, 255) : QColor(0, 0, 0);
 }
 QColor NewStyle::text() {
+    if (const auto *c = customTheme())
+        if (c->text.isValid()) return c->text;
     if (greyPalette()) return QColor(241, 242, 244);
     if (pastel()) return light() ? QColor(27, 28, 42) : QColor(244, 242, 250);
     return light() ? QColor(10, 10, 11) : QColor(245, 245, 247);
 }
 QColor NewStyle::muted() {
+    if (const auto *c = customTheme())
+        if (c->muted.isValid()) return c->muted;
     if (greyPalette()) return QColor(173, 177, 184);
     if (pastel()) return light() ? QColor(110, 108, 136) : QColor(176, 170, 198);
     return light() ? QColor(105, 105, 112) : QColor(142, 142, 150);
 }
 QColor NewStyle::solid() {
+    if (const auto *c = customTheme())
+        if (c->solid.isValid()) return c->solid;
     if (greyPalette()) return QColor(45, 48, 53);
     if (pastel()) return light() ? QColor(255, 247, 252) : QColor(36, 31, 51);
     return light() ? QColor(243, 243, 246) : QColor(21, 21, 24);
 }
-QColor NewStyle::accent() { return pastel() ? QColor(124, 107, 242) : text(); }
+QColor NewStyle::accent() {
+    if (const auto *c = customTheme())
+        if (c->accent.isValid()) return c->accent;
+    return pastel() ? QColor(124, 107, 242) : text();
+}
 QColor NewStyle::outline() { return withAlpha(muted(), 55); }
-QColor NewStyle::overlay(int alpha) { return light() ? QColor(0, 0, 0, alpha / 2) : QColor(255, 255, 255, alpha); }
+QColor NewStyle::overlay(int alpha) {
+    if (const auto *c = customTheme(); c && c->light) return QColor(0, 0, 0, alpha / 2);
+    return light() ? QColor(0, 0, 0, alpha / 2) : QColor(255, 255, 255, alpha);
+}
 
+void NewStyle::setCustomThemeJson(const QString &json) {
+    auto &settings = *Configs::dataManager->settingsRepo;
+    settings.custom_theme_json = json;
+    settings.Save();
+}
 QString NewStyle::fontFamily() {
     if (g_family.isEmpty()) {
         for (const auto *weight : {"regular", "medium", "bold"}) {
@@ -1422,6 +1483,10 @@ void NewOrb::paintEvent(QPaintEvent *) {
     m_angle = std::fmod(m_angle + dt * (.14 + .24 * m_spin), 360);
     m_phase = std::fmod(m_phase + dt * (.00035 + .001 * m_spin), 2 * M_PI);
 
+    const auto &powerSettings = *Configs::dataManager->settingsRepo;
+    const bool courtyard = powerSettings.new_power_skin != QLatin1String("hatch");
+    if (courtyard != m_courtyard) m_courtyard = courtyard;
+
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     p.setOpacity(m_opacity);
@@ -1430,6 +1495,14 @@ void NewOrb::paintEvent(QPaintEvent *) {
     const qreal cx = width() / 2.0, cy = rest * 1.6;
     const QColor ink = NewStyle::text();
     const bool day = NewStyle::light();
+
+    // The custom disc skins from the mobile app replace the whole drop when no JSON theme is loaded.
+    if (NewStyle::customTheme() == nullptr) {
+        if (m_courtyard) paintCourtyard(p, QPointF(cx, cy), base * 1.85);
+        else paintHatch(p, QPointF(cx, cy), base * 1.85);
+        paintOrbCaption(p, cx, cy, rest, ink);
+        return;
+    }
 
     // The rings leave the edge and fade before they reach the caption.
     if (m_lit > .01) {
@@ -1523,10 +1596,16 @@ void NewOrb::paintEvent(QPaintEvent *) {
     p.setPen(QPen(glyphColor, base * .055, Qt::SolidLine, Qt::RoundCap));
     p.drawArc(QRectF(cx - glyph, cy - glyph, glyph * 2, glyph * 2), 55 * 16, -290 * 16);
     p.drawLine(QPointF(cx, cy - glyph * 1.3), QPointF(cx, cy - glyph * .15));
-    // Caption under the waves.
-    // The compact button keeps the caption and the time inside it, at the same proportions: the two lines take 51 px.
+    paintOrbCaption(p, cx, cy, rest, ink);
+}
+
+// The caption under the disc, shared by all skins.
+void NewOrb::paintOrbCaption(QPainter &p, qreal cx, qreal cy, qreal rest, const QColor &ink) {
+    // The compact button keeps the caption and the time inside it, at the same proportions.
     const qreal fit = std::clamp((height() - cy - rest) / 51.0, .6, 1.0);
     const qreal top = cy + rest + 22 * fit;
+    const QColor dim = NewStyle::muted();
+    p.setOpacity(m_opacity);
     p.setFont(NewStyle::font(qRound(13 * fit)));
     p.setPen(dim);
     const QString caption = p.fontMetrics().elidedText(m_status.isEmpty() ? T("Click to connect") : m_status, Qt::ElideRight, width() - 8);
@@ -1535,6 +1614,274 @@ void NewOrb::paintEvent(QPaintEvent *) {
         p.setFont(NewStyle::font(qRound(16 * fit), QFont::Bold));
         p.setPen(ink);
         p.drawText(QPointF(cx - p.fontMetrics().horizontalAdvance(m_elapsed) / 2.0, top + 25 * fit), m_elapsed);
+        p.setFont(NewStyle::font(qRound(13 * fit)));
+        p.setPen(QColor(0x38, 0xB2, 0xFC));
+        const QString bratiki = T("Bratiki online!");
+        p.drawText(QPointF(cx - p.fontMetrics().horizontalAdvance(bratiki) / 2.0, top + 42 * fit), bratiki);
+    }
+}
+
+// The courtyard skin: the mobile app's nighttime yard, redrawn compactly for the desktop orb.
+void NewOrb::paintCourtyard(QPainter &p, const QPointF &c, qreal base) {
+    const auto &settings = *Configs::dataManager->settingsRepo;
+    const qreal arcs = settings.new_power_arcs / 100.0;
+    const qreal furnace = settings.new_power_furnace / 100.0;
+    const qreal snow = settings.new_power_snow / 100.0;
+    m_axPhase += 1;
+    const qreal phase = m_axPhase * 0.016;
+    p.save();
+    p.translate(c);
+    p.scale(base * m_pressScale / 100.0, base * m_pressScale / 100.0);
+    p.setRenderHint(QPainter::Antialiasing);
+    // Sky.
+    QLinearGradient sky(0, -100, 0, 100);
+    sky.setColorAt(0, QColor(0x0A, 0x0E, 0x16));
+    sky.setColorAt(.5, QColor(0x18, 0x24, 0x36));
+    sky.setColorAt(1, QColor(0x0D, 0x12, 0x1A));
+    p.setPen(Qt::NoPen);
+    p.setBrush(sky);
+    p.drawEllipse(QPointF(0, 0), 100, 100);
+    // Power-plant glow behind the yard.
+    if (furnace > .01) {
+        QRadialGradient glow(4, 8, 88);
+        glow.setColorAt(0, QColor(255, 200, 90, int((.08 + .92 * m_lit) * furnace * 210)));
+        glow.setColorAt(.32, QColor(255, 115, 25, int((.08 + .92 * m_lit) * furnace * 166)));
+        glow.setColorAt(.68, QColor(210, 55, 10, int(furnace * 64)));
+        glow.setColorAt(1, Qt::transparent);
+        p.setBrush(glow);
+        p.drawEllipse(QPointF(4, 8), 88, 88);
+    }
+    // Chimneys.
+    p.setOpacity(m_opacity);
+    for (const auto [x, y, tw, bw] : {std::tuple{-30., -58., 5.5, 9.5}, {14., -62., 6., 10.5}, {31., -47., 4.2, 7.5}}) {
+        QPainterPath stack;
+        stack.moveTo(x - tw, y);
+        stack.lineTo(x + tw, y);
+        stack.lineTo(x + bw, 18);
+        stack.lineTo(x - bw, 18);
+        stack.closeSubpath();
+        p.setBrush(QColor(0x26, 0x30, 0x3D));
+        p.drawPath(stack);
+        const double blink = .25 + (.5 + .5 * std::sin(phase * 3.2 + x)) * .75;
+        p.setBrush(QColor(255, 60, 40, int(blink * 55)));
+        p.drawEllipse(QPointF(x, y + 1), 4.5, 4.5);
+        p.setBrush(QColor(255, 110, 90, int(blink * 220)));
+        p.drawEllipse(QPointF(x, y + 1), 1.4, 1.4);
+    }
+    // Panel buildings.
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x25, 0x30, 0x3D));
+    p.drawRect(QRectF(-54, -34, 112, 66));
+    p.setPen(QPen(QColor(0x06, 0x08, 0x0D), 1.2));
+    for (int row = 0; row < 4; ++row)
+        for (int col = 0; col < 9; ++col) {
+            const double warmth = (row * 9 + col * 7) % 5 / 4.0;
+            const bool litWindow = m_lit > .05 && ((row * 31 + col * 17) % 10) / 10.0 < m_lit;
+            p.setBrush(litWindow ? QColor(255, int(145 + warmth * 70), int(45 + warmth * 70), 200)
+                                 : QColor(0x0C, 0x11, 0x19));
+            p.drawRect(QRectF(-50 + col * 11, -30 + row * 15, 7, 9));
+        }
+    // Wires with travelling light while connected.
+    for (const auto &[x0, y0, x1, y1, sag] : {std::tuple{-95., -55., -22., -34., 14.}, {52., -32., 88., -50., 22.},
+                                              {-62., -36., 85., -48., 26.}, {24., -6., 78., -12., 15.}}) {
+        QPainterPath wire;
+        wire.moveTo(x0, y0);
+        const qreal mx = (x0 + x1) / 2, my = std::max(y0, y1) + sag + 2.4 * std::sin(phase * 1.9);
+        wire.quadTo(mx, my, x1, y1);
+        p.setPen(QPen(QColor(0x05, 0x08, 0x0D), 2.1));
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(wire);
+        p.setPen(QPen(QColor(0x1C, 0x24, 0x30), .9));
+        p.drawPath(wire);
+        if (m_lit > .05) {
+            const qreal t = std::fmod(phase * .45, 1.0), inv = 1 - t;
+            const qreal x = inv * inv * x0 + 2 * inv * t * mx + t * t * x1;
+            const qreal y = inv * inv * y0 + 2 * inv * t * my + t * t * y1;
+            p.setBrush(QColor(56, 189, 248, int(m_lit * 110)));
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(QPointF(x, y), 3.8, 3.8);
+        }
+    }
+    // Snow / ash.
+    if (snow > .01) {
+        p.setPen(Qt::NoPen);
+        for (int i = 0; i < 32; ++i) {
+            const qreal fx = std::fmod(i * 37.7 + phase * (8 + i % 5 * 4) * snow, 204.0) - 102;
+            const qreal fy = std::fmod(i * 23.3 + phase * (10 + i % 7 * 3) * snow, 204.0) - 102;
+            p.setBrush(QColor(203, 213, 225, int((.15 + (i % 5) / 10.0) * snow * 130)));
+            p.drawEllipse(QPointF(fx, fy), .7 + (i % 3) * .4, .7 + (i % 3) * .4);
+        }
+    }
+    // Vignette.
+    QRadialGradient vignette(QPointF(0, 0), 100);
+    vignette.setColorAt(0, Qt::transparent);
+    vignette.setColorAt(.68, Qt::transparent);
+    vignette.setColorAt(1, QColor(4, 7, 12, 170));
+    p.setBrush(vignette);
+    p.setPen(Qt::NoPen);
+    p.drawEllipse(QPointF(0, 0), 100, 100);
+    p.restore();
+    // Lightning around the rim while connected.
+    if (m_lit > .03 && arcs > .01) {
+        const qreal power = std::min(1.6, m_lit * arcs);
+        p.save();
+        p.translate(c);
+        p.setRenderHint(QPainter::Antialiasing);
+        const int tick = int(phase * 16);
+        for (int i = 0; i < 7; ++i) {
+            const double start = i * 2 * M_PI / 7 + phase * .35 * (i % 2 == 0 ? 1 : -1);
+            QPainterPath bolt;
+            for (int j = 0; j <= 12; ++j) {
+                const double u = j / 12.0, a = start + u * .78;
+                const double radius = 107 + std::sin(j * 19.17 + tick * 7.31 + i) * 9 * std::sin(u * M_PI);
+                const QPointF pt(std::cos(a) * radius * (base / 100.0), std::sin(a) * radius * (base / 100.0));
+                if (j == 0) bolt.moveTo(pt); else bolt.lineTo(pt);
+                if (j == 6) { bolt.lineTo(pt.x() + std::cos(a + .6) * 11 * base / 100, pt.y() + std::sin(a + .6) * 11 * base / 100); bolt.moveTo(pt); }
+            }
+            p.setPen(QPen(QColor(14, 165, 233, int(std::min(255.0, power * 22))), 6));
+            p.drawPath(bolt);
+            p.setPen(QPen(QColor(226, 242, 254, int(std::min(255.0, power * 225))), 1.6));
+            p.drawPath(bolt);
+        }
+        p.restore();
+    }
+}
+
+// The hatch skin: industrial steel, cables and electricity (from the mobile IndustrialOrbArtwork).
+void NewOrb::paintHatch(QPainter &p, const QPointF &c, qreal base) {
+    m_axPhase += 1;
+    const qreal phase = m_axPhase * 0.016;
+    const QColor cyan(53, 224, 255), whiteHot(215, 253, 255);
+    p.save();
+    p.translate(c);
+    p.scale(base * m_pressScale / 100.0, base * m_pressScale / 100.0);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    if (m_lit > .01) {
+        QRadialGradient haze(0, 0, 142);
+        haze.setColorAt(0, Qt::transparent);
+        haze.setColorAt(.5, QColor(53, 224, 255, 0));
+        haze.setColorAt(.75, QColor(53, 224, 255, int(68 * m_lit)));
+        haze.setColorAt(1, Qt::transparent);
+        p.setOpacity(m_opacity * m_lit);
+        p.setBrush(haze);
+        p.drawEllipse(QPointF(0, 0), 142, 142);
+        p.setOpacity(m_opacity);
+    }
+    // Cables.
+    for (int cable = 0; cable < 5; ++cable) {
+        const qreal radius = 1.055 + cable * .037;
+        QPainterPath ring;
+        for (int step = 0; step <= 190; ++step) {
+            const double a = -.25 + step * .032;
+            const double rr = radius + .017 * std::sin(a * 3 + cable * 2) + .008 * std::cos(a * 7);
+            const QPointF pt(std::cos(a) * rr * 100, std::sin(a) * rr * 100 * (.97 + cable * .004));
+            if (step == 0) ring.moveTo(pt); else ring.lineTo(pt);
+        }
+        p.setPen(QPen(QColor(0x02, 0x05, 0x09), 4.3, Qt::SolidLine, Qt::RoundCap));
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(ring);
+        p.setPen(QPen(QColor(0x25, 0x2C, 0x32), 2.9));
+        p.drawPath(ring);
+        p.setPen(QPen(QColor(0x3D, 0x45, 0x4B), 1.2));
+        p.drawPath(ring.translated(-.4, -.6));
+    }
+    // Housing.
+    QPainterPath hull;
+    for (int i = 0; i <= 180; ++i) {
+        const double angle = i * 2 * M_PI / 180;
+        const double r = 1.02 + .016 * std::sin(angle * 9) + .009 * std::cos(angle * 17);
+        const QPointF pt(std::cos(angle) * r * 100, std::sin(angle) * r * 100);
+        if (i == 0) hull.moveTo(pt); else hull.lineTo(pt);
+    }
+    hull.closeSubpath();
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x11, 0x16, 0x1A));
+    p.drawPath(hull.translated(1.2, 2.4));
+    QLinearGradient metal(-80, -90, 70, 100);
+    metal.setColorAt(0, QColor(0x11, 0x16, 0x1A));
+    metal.setColorAt(.22, QColor(0x78, 0x81, 0x8A));
+    metal.setColorAt(.45, QColor(0x38, 0x3C, 0x3F));
+    metal.setColorAt(.7, QColor(0x1C, 0x1C, 0x1B));
+    metal.setColorAt(1, QColor(0x63, 0x6B, 0x70));
+    p.setBrush(metal);
+    p.drawPath(hull);
+    // The cavity: closed hatch or the factory inside.
+    if (m_lit < .05) {
+        QLinearGradient plate(-70, -80, 70, 80);
+        plate.setColorAt(0, QColor(0x37, 0x40, 0x44));
+        plate.setColorAt(.5, QColor(0x1C, 0x25, 0x2C));
+        plate.setColorAt(1, QColor(0x10, 0x17, 0x1B));
+        p.setBrush(plate);
+        p.drawEllipse(QPointF(0, 0), 83, 83);
+        p.setPen(QPen(QColor(8, 13, 18), .9));
+        p.drawLine(QPointF(-84, 12), QPointF(84, 12));
+    } else {
+        QRadialGradient depth(16, 18, 100);
+        depth.setColorAt(0, QColor(0x57, 0x43, 0x2C));
+        depth.setColorAt(.4, QColor(0x18, 0x2D, 0x39));
+        depth.setColorAt(1, QColor(0x05, 0x0B, 0x13));
+        p.setBrush(depth);
+        p.drawEllipse(QPointF(0, 0), 84, 84);
+        // Factory windows.
+        p.setOpacity(m_opacity * m_lit);
+        for (int col = 0; col < 8; ++col)
+            for (int row = 0; row < 4; ++row) {
+                const bool bright = (col * 7 + row * 3) % 6 != 0;
+                p.setBrush(bright ? QColor(0xFF, 0xB9, 0x57) : QColor(0x72, 0x53, 0x33));
+                p.drawRect(QRectF(-72 + col * 17, -18 + row * 15, 8, 8));
+            }
+        p.setOpacity(m_opacity);
+    }
+    // Bolts.
+    for (int i = 0; i < 10; ++i) {
+        const double a = i * 2 * M_PI / 10 + .13;
+        const QPointF pt(std::cos(a) * 94.7, std::sin(a) * 94.7);
+        p.setBrush(QColor(7, 10, 13, 160));
+        p.drawEllipse(pt + QPointF(0, .6), 3.9, 3.9);
+        p.setBrush(QColor(7, 10, 13));
+        p.drawEllipse(pt, 2.9, 2.9);
+    }
+    // Neon ring when powered.
+    if (m_lit > .05) {
+        p.setPen(QPen(cyan, .9));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(QPointF(0, 0), 83.8, 83.8);
+        p.setPen(QPen(whiteHot, .2));
+        p.drawEllipse(QPointF(0, 0), 83.2, 83.2);
+    }
+    p.restore();
+    // Electric arcs along the cables while connected (from IndustrialOrbArtwork.drawElectricity).
+    if (m_lit > .03) {
+        p.save();
+        p.translate(c);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setBrush(Qt::NoBrush);
+        const int flash = int(phase * 11);
+        for (int arc = 0; arc < 4; ++arc) {
+            QPainterPath bolt;
+            const double start = arc * 1.57 + flash * .19;
+            for (int step = 0; step <= 18; ++step) {
+                const double angle = start + step * .029;
+                const double jitter = std::sin(step * 12.71 + flash * 3.17 + arc) * .027;
+                const double radius = 1.10 + jitter + std::sin(step * 5.2 + flash) * .011;
+                const QPointF pt(std::cos(angle) * radius * 100 * base / 100.0, std::sin(angle) * radius * 100 * base / 100.0);
+                if (step == 0) bolt.moveTo(pt); else bolt.lineTo(pt);
+                if (step == 9) { bolt.lineTo(pt.x() + std::cos(angle + .9) * 12 * base / 100, pt.y() + std::sin(angle + .9) * 12 * base / 100); bolt.moveTo(pt); }
+            }
+            for (int stroke = 3; stroke >= 0; --stroke) {
+                p.setPen(QPen(stroke == 0 ? whiteHot : cyan, .3 + stroke * 1.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                p.setOpacity(m_opacity * (stroke == 0 ? 230 : 20) / 255.0 * m_lit);
+                p.drawPath(bolt);
+            }
+        }
+        p.setOpacity(m_opacity);
+        if (m_connecting) {
+            QRectF rect(-84.5 * base / 100, -84.5 * base / 100, 169 * base / 100, 169 * base / 100);
+            p.setPen(QPen(cyan, 1.4));
+            p.drawArc(rect, qRound(phase * 190 * 16), 100 * 16);
+        }
+        p.restore();
     }
 }
 

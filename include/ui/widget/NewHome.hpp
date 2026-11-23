@@ -51,6 +51,14 @@ namespace NewStyle {
     QColor solid();
     QColor outline();
     QColor overlay(int alpha);
+    // A theme loaded from a JSON file; null fields fall back to the selected built-in palette.
+    struct CustomTheme {
+        QString name;
+        QColor background, surface, solid, toolbar, text, muted, well, frosted, accent;
+        bool light = false;
+    };
+    const CustomTheme *customTheme();
+    void setCustomThemeJson(const QString &json);
 
     QPalette palette();
     QString styleSheet();
@@ -162,10 +170,14 @@ private:
     QString m_status;
     QString m_elapsed;
     qreal m_wave = .3, m_spin = 0, m_lit = 0, m_angle = 0, m_phase = 0, m_pressScale = 1, m_opacity = 1;
-    qint64 m_lastFrame = 0;
-    QElapsedTimer m_clock;
-    QTimer *m_frame = nullptr;
-    QVariantAnimation *m_pressAnim = nullptr;
+    qint64 m_axPhase = 0;
+    bool m_courtyard = true;
+    void paintCourtyard(QPainter &p, const QPointF &c, qreal base);
+    void paintHatch(QPainter &p, const QPointF &c, qreal base);
+    void paintOrbCaption(QPainter &p, qreal cx, qreal cy, qreal rest, const QColor &ink);
+
+public:
+    void setSkin(bool courtyard) { if (m_courtyard != courtyard) { m_courtyard = courtyard; update(); } }
 };
 
 // Close, maximise and minimise in the window's own style.

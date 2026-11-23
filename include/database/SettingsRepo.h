@@ -119,6 +119,11 @@ namespace Configs {
         bool test_defaults_182_migrated = false;
         bool test_url_https_199_migrated = false;
         bool theme_rawline_110_migrated = false;
+        QString new_power_skin = "courtyard";
+        int new_power_arcs = 100;
+        int new_power_furnace = 100;
+        int new_power_snow = 75;
+        QString custom_theme_json = "";
         int language = 0;
         QString font = "";
         int font_size = 0;

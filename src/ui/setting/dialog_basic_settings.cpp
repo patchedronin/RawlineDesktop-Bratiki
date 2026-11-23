@@ -18,6 +18,9 @@
 
 #include <QStyleFactory>
 #include <QFileDialog>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <QIODevice>
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QPixmap>
@@ -439,6 +442,52 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
         Configs::dataManager->settingsRepo->theme = theme;
         Configs::dataManager->settingsRepo->Save();
         refreshUrlSchemeStatus();
+    });
+
+    // The connect button's skins, from the mobile Bratiki build: only visual, they touch no connection settings.
+    ui->power_skin->setCurrentIndex(Configs::dataManager->settingsRepo->new_power_skin == QLatin1String("hatch") ? 1 : 0);
+    ui->power_arcs->setValue(Configs::dataManager->settingsRepo->new_power_arcs);
+    ui->power_furnace->setValue(Configs::dataManager->settingsRepo->new_power_furnace);
+    ui->power_snow->setValue(Configs::dataManager->settingsRepo->new_power_snow);
+    connect(ui->power_skin, &QComboBox::currentIndexChanged, this, [this](int index) {
+        Configs::dataManager->settingsRepo->new_power_skin = index == 1 ? QStringLiteral("hatch") : QStringLiteral("courtyard");
+        Configs::dataManager->settingsRepo->Save();
+        if (NewStyle::active()) themeManager()->ApplyTheme(Configs::dataManager->settingsRepo->theme, true);
+    });
+    for (auto *slider : {ui->power_arcs, ui->power_furnace, ui->power_snow}) {
+        connect(slider, &QSlider::valueChanged, this, [this](int) {
+            Configs::dataManager->settingsRepo->new_power_arcs = ui->power_arcs->value();
+            Configs::dataManager->settingsRepo->new_power_furnace = ui->power_furnace->value();
+            Configs::dataManager->settingsRepo->new_power_snow = ui->power_snow->value();
+            Configs::dataManager->settingsRepo->Save();
+        });
+    }
+    const auto customName = [] { const auto *c = NewStyle::customTheme(); return c ? c->name : QString(); };
+    ui->theme_file_reset->setVisible(!customName().isEmpty());
+    connect(ui->theme_file_load, &QPushButton::clicked, this, [this] {
+        const QString file = NativeFileDialog::getOpenFileName(this, tr("Theme from file"), QDir::homePath(),
+                                                               tr("Theme files (*.json);;All files (*)"));
+        if (file.isEmpty()) return;
+        QFile theme(file);
+        if (!theme.open(QIODevice::ReadOnly)) {
+            QMessageBox::warning(this, tr("Theme from file"), tr("Could not read the theme file."));
+            return;
+        }
+        const QString json = QString::fromUtf8(theme.readAll());
+        QJsonParseError parse{};
+        QJsonDocument::fromJson(json.toUtf8(), &parse);
+        if (parse.error != QJsonParseError::NoError) {
+            QMessageBox::warning(this, tr("Theme from file"), tr("Not a valid JSON theme: %1").arg(parse.errorString()));
+            return;
+        }
+        NewStyle::setCustomThemeJson(json);
+        ui->theme_file_reset->setVisible(true);
+        if (NewStyle::active()) themeManager()->ApplyTheme(Configs::dataManager->settingsRepo->theme, true);
+    });
+    connect(ui->theme_file_reset, &QPushButton::clicked, this, [this] {
+        NewStyle::setCustomThemeJson(QString());
+        ui->theme_file_reset->setVisible(false);
+        if (NewStyle::active()) themeManager()->ApplyTheme(Configs::dataManager->settingsRepo->theme, true);
     });
 
     ui->user_agent->setText(Configs::dataManager->settingsRepo->user_agent);

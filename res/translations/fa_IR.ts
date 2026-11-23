@@ -3375,4 +3375,11 @@ Error: %1</source>
         <translation>سرور DNS «%1»: %2</translation>
     </message>
 </context>
+<context>
+    <name>NewHome</name>
+    <message>
+        <source>Bratiki online!</source>
+        <translation>Братики آنلاین!</translation>
+    </message>
+</context>
 </TS>

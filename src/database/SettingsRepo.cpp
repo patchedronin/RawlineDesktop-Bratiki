@@ -193,7 +193,12 @@ namespace Configs {
             {"dns_cache_capacity", &dns_cache_capacity},
             {"h2_max_concurrent_streams", &h2_max_concurrent_streams},
             {"quic_initial_packet_size", &quic_initial_packet_size},
+            {"new_power_arcs",         &new_power_arcs},
+            {"new_power_furnace",      &new_power_furnace},
+            {"new_power_snow",         &new_power_snow},
             {"warp_masque_http_mode",  &warp_masque_http_mode},
+            {"new_power_skin",         &new_power_skin},
+            {"custom_theme_json",      &custom_theme_json},
         };
 
         stringMap = {
@@ -232,6 +237,8 @@ namespace Configs {
             {"h2_connection_receive_window", &h2_connection_receive_window},
             {"theme",                      &theme},
             {"seasonal_decoration",        &seasonal_decoration},
+            {"new_power_skin",             &new_power_skin},
+            {"custom_theme_json",          &custom_theme_json},
             {"custom_inbound",             &custom_inbound},
             {"custom_route",               &custom_route_global},
             {"font",                       &font},

@@ -986,8 +986,70 @@
   <property name="text"><string>Seasonal decoration</string></property>
  </widget>
 </item>
-<item row="1" column="1">
- <widget class="QComboBox" name="seasonal_decoration"/>
+           <item row="4" column="0">
+ <widget class="QLabel" name="label_power_skin">
+  <property name="text"><string>Connect button appearance</string></property>
+ </widget>
+</item>
+<item row="4" column="1">
+ <widget class="QComboBox" name="power_skin">
+  <item><property name="text"><string notr="true">Courtyard with power plant</string></property></item>
+  <item><property name="text"><string notr="true">Hatch</string></property></item>
+ </widget>
+</item>
+<item row="5" column="0">
+ <widget class="QLabel" name="label_power_effects">
+  <property name="text"><string>Lightning intensity</string></property>
+ </widget>
+</item>
+<item row="5" column="1">
+ <widget class="QSlider" name="power_arcs">
+  <property name="orientation"><enum>Qt::Horizontal</enum></property>
+  <property name="minimum"><number>0</number></property>
+  <property name="maximum"><number>180</number></property>
+  <property name="value"><number>100</number></property>
+ </widget>
+</item>
+<item row="6" column="0">
+ <widget class="QLabel" name="label_power_furnace">
+  <property name="text"><string>Power plant glow</string></property>
+ </widget>
+</item>
+<item row="6" column="1">
+ <widget class="QSlider" name="power_furnace">
+  <property name="orientation"><enum>Qt::Horizontal</enum></property>
+  <property name="minimum"><number>0</number></property>
+  <property name="maximum"><number>160</number></property>
+  <property name="value"><number>100</number></property>
+ </widget>
+</item>
+<item row="7" column="0">
+ <widget class="QLabel" name="label_power_snow">
+  <property name="text"><string>Snow / ash</string></property>
+ </widget>
+</item>
+<item row="7" column="1">
+ <widget class="QSlider" name="power_snow">
+  <property name="orientation"><enum>Qt::Horizontal</enum></property>
+  <property name="minimum"><number>0</number></property>
+  <property name="maximum"><number>150</number></property>
+  <property name="value"><number>75</number></property>
+ </widget>
+</item>
+<item row="8" column="0">
+ <widget class="QLabel" name="label_theme_file">
+  <property name="text"><string>Theme from file</string></property>
+ </widget>
+</item>
+<item row="8" column="1">
+ <layout class="QHBoxLayout" name="theme_file_row">
+  <item><widget class="QPushButton" name="theme_file_load">
+   <property name="text"><string>Choose…</string></property>
+  </widget></item>
+  <item><widget class="QPushButton" name="theme_file_reset">
+   <property name="text"><string>Reset</string></property>
+  </widget></item>
+ </layout>
 </item>
 </layout>
           </widget>

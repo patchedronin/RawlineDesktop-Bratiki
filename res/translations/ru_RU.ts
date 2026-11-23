@@ -17980,6 +17980,11 @@ connection</source>
         <source>In the middle the servers go under the panel</source>
         <translation>По центру серверы встают под панель</translation>
     </message>
+
+    <message>
+        <source>Bratiki online!</source>
+        <translation>Братики онлайн!</translation>
+    </message>
 </context>
 <context>
     <name>DialogAbout</name>

@@ -12328,4 +12328,11 @@ Remove that endpoint from this routing profile as well?</source>
         <translation>DNS 服务器 «%1»：%2</translation>
     </message>
 </context>
+<context>
+    <name>NewHome</name>
+    <message>
+        <source>Bratiki online!</source>
+        <translation>Братики 在线！</translation>
+    </message>
+</context>
 </TS>
