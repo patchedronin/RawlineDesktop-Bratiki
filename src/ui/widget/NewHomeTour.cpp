@@ -175,14 +175,25 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             if (!caption || !caption->isVisible()) qFatal("The Rawline title bar is not visible");
             const auto buttons = caption->findChildren<QAbstractButton *>(QString(), Qt::FindDirectChildrenOnly);
             if (buttons.size() != 3) qFatal("The window caption is missing its controls");
+            // The disc's repaints and the themed frame keep the loop busy on a headless
+            // runner; let the window state settle before it is asserted.
+            const auto settle = [] {
+                QEventLoop loop;
+                QTimer::singleShot(400, &loop, &QEventLoop::quit);
+                loop.exec();
+            };
             const auto hwnd = reinterpret_cast<HWND>(mw->winId());
             buttons[1]->click();
+            settle();
             if (!IsZoomed(hwnd)) qFatal("The caption maximize command did not maximize");
             buttons[1]->click();
+            settle();
             if (IsZoomed(hwnd)) qFatal("The caption restore command did not restore");
             buttons[0]->click();
+            settle();
             if (!IsIconic(hwnd)) qFatal("The caption minimize command did not minimize");
             SendMessageW(hwnd, WM_SYSCOMMAND, SC_RESTORE, 0);
+            settle();
             if (IsIconic(hwnd)) qFatal("The shell restore command did not restore");
         })};
 #endif
