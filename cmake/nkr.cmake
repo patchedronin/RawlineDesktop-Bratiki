@@ -15,6 +15,11 @@ endif ()
 if (RAWLINE_REPOSITORY STREQUAL "throneproj/Throne")
     set(RAWLINE_REPOSITORY "")
 endif ()
+# Bratiki fork: without this, a raw GITHUB_REPOSITORY (this repo) is used, but local
+# builds and CI always resolve here.
+if (RAWLINE_REPOSITORY STREQUAL "ttrroyy/Rawline")
+    set(RAWLINE_REPOSITORY "patchedronin/RawlineDesktop-Bratiki")
+endif ()
 
 # Derive numeric parts for Windows PE VERSIONINFO (X.Y.Z.W) from NKR_VERSION.
 # Examples:
