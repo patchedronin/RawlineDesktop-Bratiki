@@ -343,8 +343,7 @@ namespace {
 
     void clipNativeFrame(QWidget *window, HWND hwnd, bool themed) {
         const auto previous = window->property("rawlineNativeFrameRegion").toRect();
-        // Windows 11 rounds framed windows itself; a region here trades DWM's frame for classic caption remnants.
-        if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11) return;
+        // Windows 11 must still clear a region left by an earlier state; only setting a new one is skipped below.
         if (!themed || window->isMaximized() || window->isFullScreen()) {
             if (previous.isValid()) {
                 window->setProperty("rawlineNativeFrameRegion", QVariant());
@@ -352,6 +351,8 @@ namespace {
             }
             return;
         }
+        // Windows 11 rounds framed windows itself; a region here trades DWM's frame for classic caption remnants.
+        if (QOperatingSystemVersion::current() >= QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 22000)) return;
         if (window->isMinimized()) return;
         RECT outer{};
         if (!GetWindowRect(hwnd, &outer)) return;
@@ -715,7 +716,8 @@ void NewStyle::themeFrame(QWidget *window) {
     set(hwnd, 35 /* DWMWA_CAPTION_COLOR */, &caption, sizeof caption);
     set(hwnd, 36 /* DWMWA_TEXT_COLOR */, &ink, sizeof ink);
     set(hwnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
-    const DWORD cornerPreference = 0; // DWMWCP_DEFAULT
+    const DWORD cornerPreference = themed && QOperatingSystemVersion::current() >= QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 22000)
+                                       ? 2 /* DWMWCP_ROUND */ : 0; // DWMWCP_DEFAULT
     set(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPreference, sizeof cornerPreference);
 #else
     Q_UNUSED(window)
