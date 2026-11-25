@@ -25,6 +25,7 @@
 #include <QGroupBox>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QOperatingSystemVersion>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QLoggingCategory>
@@ -342,6 +343,8 @@ namespace {
 
     void clipNativeFrame(QWidget *window, HWND hwnd, bool themed) {
         const auto previous = window->property("rawlineNativeFrameRegion").toRect();
+        // Windows 11 rounds framed windows itself; a region here trades DWM's frame for classic caption remnants.
+        if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11) return;
         if (!themed || window->isMaximized() || window->isFullScreen()) {
             if (previous.isValid()) {
                 window->setProperty("rawlineNativeFrameRegion", QVariant());
@@ -1499,8 +1502,8 @@ void NewOrb::paintEvent(QPaintEvent *) {
 
     // The custom disc skins from the mobile app replace the whole drop when no JSON theme is loaded.
     if (NewStyle::customTheme() == nullptr) {
-        if (m_courtyard) paintCourtyard(p, QPointF(cx, cy), base * 1.85);
-        else paintHatch(p, QPointF(cx, cy), base * 1.85);
+        if (m_courtyard) paintCourtyard(p, QPointF(cx, cy), base);
+        else paintHatch(p, QPointF(cx, cy), base);
         paintOrbCaption(p, cx, cy, rest, ink);
         return;
     }
@@ -1603,7 +1606,7 @@ void NewOrb::paintEvent(QPaintEvent *) {
 // The caption under the disc, shared by all skins.
 void NewOrb::paintOrbCaption(QPainter &p, qreal cx, qreal cy, qreal rest, const QColor &ink) {
     // The compact button keeps the caption and the time inside it, at the same proportions.
-    const qreal fit = std::clamp((height() - cy - rest) / 51.0, .6, 1.0);
+    const qreal fit = std::clamp((height() - cy - rest) / (m_connected ? 76.0 : 51.0), .6, 1.0);
     const qreal top = cy + rest + 22 * fit;
     const QColor dim = NewStyle::muted();
     p.setOpacity(m_opacity);
