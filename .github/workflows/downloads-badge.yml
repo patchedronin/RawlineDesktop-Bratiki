@@ -45,8 +45,8 @@ jobs:
           print(json.dumps({"schemaVersion": 1, "label": "downloads-total", "message": short(n), "color": "brightgreen"}))
           EOF
           cat site/downloads.json
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5
