@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -49,4 +50,15 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
+      - name: Wait for the pages artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 30); do
+            n=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+                 --jq '[.artifacts[] | select(.name == "github-pages")] | length')
+            if [ "$n" -ge 1 ]; then echo "artifact visible after ${i} s"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::github-pages artifact never appeared"; exit 1
       - uses: actions/deploy-pages@v5
