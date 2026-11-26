@@ -674,6 +674,15 @@ QStyle *NewStyle::createStyle() { return new NewProxyStyle; }
 void NewStyle::roundCorners(QWidget *window, bool compact) {
     if (window && (window->windowFlags() & Qt::FramelessWindowHint)) {
         if (window->isMaximized() || window->isFullScreen()) window->clearMask();
+#ifdef Q_OS_WIN
+        // A region on a top-level window makes Windows 11 paint the classic frame: the caption band
+        // shows up over our title bar as soon as the title changes (e.g. on connecting). The system
+        // rounds such a window itself, so only popups keep the mask.
+        else if (window->windowType() == Qt::Window &&
+                 QOperatingSystemVersion::current() >= QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 22000)) {
+            if (!window->mask().isEmpty()) window->clearMask();
+        }
+#endif
         else clipRoundedWindow(window, compact ? 10 : 14);
     }
 #ifdef Q_OS_WIN

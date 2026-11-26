@@ -54,6 +54,14 @@ class InterfaceRegressions(unittest.TestCase):
         self.assertIn("p.setPen(QPen(withAlpha(mark, day ? 200 : 230), 1.5));", text)
         self.assertIn("p.setBrush(blend(plate, mark, day ? .12 : .22));", text)
 
+    def test_windows_11_main_window_keeps_the_native_frame(self):
+        # A window region makes Windows 11 paint the classic frame, whose caption band then shows
+        # over the custom title bar as soon as the title changes (connecting).
+        text = read("src/ui/widget/NewHome.cpp")
+        body = text.split("void NewStyle::roundCorners(QWidget *window, bool compact)", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("window->windowType() == Qt::Window", body)
+        self.assertIn("clearMask();", body)
+
     def test_windows_and_menus_have_no_black_corners(self):
         text = read("src/ui/widget/NewHome.cpp")
         self.assertIn("clipRoundedWindow(widget, menuRadius);", text)
