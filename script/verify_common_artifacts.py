@@ -144,7 +144,7 @@ def main():
         current = json.loads(Path("version.json").read_text(encoding="utf-8"))
         for metadata in (previous, current):
             version = metadata.pop("version", None)
-            if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+(?:\.\d+)?(?:-(?:alpha|beta|rc)\.\d+)?", version):
+            if not isinstance(version, str) or not re.fullmatch(r"\d+(?:\.\d+){1,3}(?:-(?:alpha|beta|rc)\.\d+)?", version):
                 raise RuntimeError("Invalid application version")
         if previous != current:
             raise RuntimeError("Upstream version metadata changed; rebuild first")
