@@ -7,7 +7,8 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
 tag, archives, destination = sys.argv[1:]
-if not re.fullmatch(r'\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9.]+)?', tag):
+# The fork numbers its builds with an extra component (1.2.2.3); allow up to four.
+if not re.fullmatch(r'\d+(?:\.\d+){1,3}(?:-[A-Za-z0-9.]+)?', tag):
     raise SystemExit('Invalid release version')
 archives = Path(archives).resolve()
 destination = Path(destination).resolve()
