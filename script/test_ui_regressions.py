@@ -75,6 +75,25 @@ class InterfaceRegressions(unittest.TestCase):
         self.assertLess(view.index("NewStyle::useNativeCaption(this, !NewStyle::active());"),
                         view.index("QApplication::setWindowIcon("))
 
+    def test_classic_switch_drops_any_window_region(self):
+        # Windows 11 rounds a framed window whose client area was stripped, and its region survives
+        # the theme switch on its own: the classic frame must own the shape, so leaving the new look
+        # clears whatever region is there, not only the one this program set.
+        text = read("src/ui/widget/NewHome.cpp")
+        body = text.split("void clipNativeFrame(QWidget *window, HWND hwnd, bool themed)", 1)[1].split("\n    }\n", 1)[0]
+        cleared = body.split("if (!themed)", 1)[1].split("if (window->isMaximized()", 1)[0]
+        self.assertIn("SetWindowRgn(hwnd, nullptr, TRUE)", cleared)
+
+    def test_tour_does_not_promise_the_system_dialog_region(self):
+        # On Windows 11 the dialog's rounded region belongs to the system: it survives into classic
+        # unless the app drops it, and it does not come back after that. Only the Windows 10 region
+        # (set by clipNativeFrame) and the DWM corner preference are promises of this program.
+        tour = read("src/ui/widget/NewHomeTour.cpp")
+        self.assertIn("check(!win11 || hasRoundedRegion(dialogId), \"new Windows frame is still rectangular\");", tour)
+        self.assertIn("check(!win11 || cornerPreference(dialogId) == 2, \"the dialog lost its DWM rounding\");", tour)
+        self.assertIn("cornerPreference(dialogId) == 0", tour)
+        self.assertIn("check(hasRoundedRegion(dialogId) == !win11 && hasRoundedRegion(mainId) == !win11 &&", tour)
+
     def test_windows_and_menus_have_no_black_corners(self):
         text = read("src/ui/widget/NewHome.cpp")
         self.assertIn("clipRoundedWindow(widget, menuRadius);", text)

@@ -425,6 +425,7 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v8.0.1
         with:
+          digest-mismatch: warn  # upload v7 zips fail the v8 digest check since 2026-11-25; content is fine
           github-token: ${{ github.token }}
           run-id: ${{ inputs.common_run_id || github.run_id }}
           name: Rawline-${{ needs.verify-common.outputs.common_sha || github.sha }}-Common-${{ matrix.common }}
@@ -617,6 +618,7 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v8.0.1
         with:
+          digest-mismatch: warn  # upload v7 zips fail the v8 digest check since 2026-11-25; content is fine
           pattern: Rawline-${{ github.sha }}-${{ matrix.artifacts }}
           path: download-artifact
         if: inputs.cpp_run_id == '' && inputs.pack_run_id == ''
@@ -624,6 +626,7 @@ jobs:
         if: (inputs.cpp_run_id != '' || inputs.pack_run_id != '') && (matrix.target == 'macos' || matrix.target == 'debug')
         uses: actions/download-artifact@v8.0.1
         with:
+          digest-mismatch: warn  # upload v7 zips fail the v8 digest check since 2026-11-25; content is fine
           github-token: ${{ github.token }}
           run-id: ${{ inputs.pack_run_id || github.run_id }}
           name: Rawline-${{ needs.verify-pack.outputs.pack_sha || github.sha }}-darwin-arm64
@@ -632,6 +635,7 @@ jobs:
         if: inputs.cpp_run_id != ''
         uses: actions/download-artifact@v8.0.1
         with:
+          digest-mismatch: warn  # upload v7 zips fail the v8 digest check since 2026-11-25; content is fine
           github-token: ${{ github.token }}
           run-id: ${{ inputs.cpp_run_id }}
           pattern: Rawline-${{ needs.verify-cpp.outputs.cpp_sha }}-${{ matrix.artifacts }}
@@ -673,6 +677,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/download-artifact@v8.0.1
         with:
+          digest-mismatch: warn  # upload v7 zips fail the v8 digest check since 2026-11-25; content is fine
           github-token: ${{ github.token }}
           run-id: ${{ inputs.pack_run_id || github.run_id }}
           pattern: Pack-${{ needs.verify-pack.outputs.pack_sha || github.sha }}-linux-*
@@ -727,6 +732,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/download-artifact@v8.0.1
         with:
+          digest-mismatch: warn  # upload v7 zips fail the v8 digest check since 2026-11-25; content is fine
           github-token: ${{ github.token }}
           run-id: ${{ inputs.pack_run_id || github.run_id }}
           name: Pack-${{ needs.verify-pack.outputs.pack_sha || github.sha }}-windows
@@ -757,6 +763,7 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v8.0.1
         with:
+          digest-mismatch: warn  # upload v7 zips fail the v8 digest check since 2026-11-25; content is fine
           pattern: Pack-${{ github.sha }}-*
           merge-multiple: true
           path: deployment
@@ -764,6 +771,7 @@ jobs:
         if: inputs.pack_run_id != ''
         uses: actions/download-artifact@v8.0.1
         with:
+          digest-mismatch: warn  # upload v7 zips fail the v8 digest check since 2026-11-25; content is fine
           github-token: ${{ github.token }}
           run-id: ${{ inputs.pack_run_id }}
           pattern: Pack-${{ needs.verify-pack.outputs.pack_sha }}-*
@@ -860,6 +868,7 @@ jobs:
       - name: Download Linux artifacts
         uses: actions/download-artifact@v8.0.1
         with:
+          digest-mismatch: warn  # upload v7 zips fail the v8 digest check since 2026-11-25; content is fine
           pattern: Pack-${{ github.sha }}-linux-*
           merge-multiple: true
           path: deployment

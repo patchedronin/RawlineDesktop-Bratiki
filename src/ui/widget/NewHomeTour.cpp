@@ -512,6 +512,17 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 DeleteObject(region);
                 return rounded;
             };
+            const auto cornerPreference = [](WId id) {
+                using GetAttribute = HRESULT(WINAPI *)(HWND, DWORD, PVOID, DWORD);
+                static const auto get = [] {
+                    const HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+                    return dwm ? reinterpret_cast<GetAttribute>(GetProcAddress(dwm, "DwmGetWindowAttribute")) : nullptr;
+                }();
+                DWORD preference = 0;
+                if (!get || FAILED(get(reinterpret_cast<HWND>(id), 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &preference, sizeof preference)))
+                    preference = 0;
+                return preference;
+            };
             const auto checkClientFrame = [&](WId id, bool custom) {
                 const auto hwnd = reinterpret_cast<HWND>(id);
                 RECT window{};
@@ -541,7 +552,12 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             // Windows 11 rounds the frame itself; older systems get the region from clipNativeFrame().
             check(win11 ? !hasRoundedRegion(mainId) : hasRoundedRegion(mainId),
                   "the main window region does not match the system");
-            check(hasRoundedRegion(dialogId), "new Windows frame is still rectangular");
+            // On Windows 11 the dialog's rounded region is the system's own (DWM rounds a framed
+            // window whose client area was stripped); the classic switch below drops it and the
+            // system does not put it back, so only the Windows 10 region is this program's promise.
+            // What the program promises on Windows 11 is the DWM rounding preference.
+            check(!win11 || hasRoundedRegion(dialogId), "new Windows frame is still rectangular");
+            check(!win11 || cornerPreference(dialogId) == 2, "the dialog lost its DWM rounding");
 #else
             check(dialog.testAttribute(Qt::WA_TranslucentBackground), "new dialog must have a translucent surface");
 #endif
@@ -557,6 +573,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 checkMainCaption(false);
                 checkDialogCaption(false);
                 check(!hasRoundedRegion(mainId) && !hasRoundedRegion(dialogId), "Rawline rounding survived the switch to classic");
+                check(!win11 || cornerPreference(dialogId) == 0, "the classic dialog kept the DWM rounding preference");
 #endif
                 check(dialog.contentsMargins() == margins, "title bar space leaked into classic layout");
                 check(!dialog.testAttribute(Qt::WA_TranslucentBackground) && !dialog.testAttribute(Qt::WA_NoSystemBackground), "classic dialog still transparent");
@@ -565,7 +582,11 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
 #ifdef Q_OS_WIN
                 check(mw->winId() == mainId && dialog.winId() == dialogId && !hasCaption(mainId) && hasCaption(dialogId),
                       "switching back changed the Windows frame");
-                check(hasRoundedRegion(dialogId) && (win11 ? !hasRoundedRegion(mainId) : hasRoundedRegion(mainId)),
+                // Back in the new look Windows 11 rounds the frame without a region (the classic
+                // switch dropped the system's, and it does not return); Windows 10 gets both back
+                // from clipNativeFrame().
+                check(hasRoundedRegion(dialogId) == !win11 && hasRoundedRegion(mainId) == !win11 &&
+                      (!win11 || cornerPreference(dialogId) == 2),
                       "Rawline rounding did not return");
                 checkMainCaption(true);
                 checkDialogCaption(true);

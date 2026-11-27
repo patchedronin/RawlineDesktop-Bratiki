@@ -343,8 +343,16 @@ namespace {
 
     void clipNativeFrame(QWidget *window, HWND hwnd, bool themed) {
         const auto previous = window->property("rawlineNativeFrameRegion").toRect();
-        // Windows 11 must still clear a region left by an earlier state; only setting a new one is skipped below.
-        if (!themed || window->isMaximized() || window->isFullScreen()) {
+        if (!themed) {
+            // Leaving the new look: the rounded region may also be the system's own (Windows 11 rounds
+            // a framed window whose client area was stripped), and it survives the theme switch on its
+            // own. Drop whatever region is there, the classic frame owns the shape.
+            window->setProperty("rawlineNativeFrameRegion", QVariant());
+            if (!SetWindowRgn(hwnd, nullptr, TRUE)) window->setProperty("rawlineNativeFrameRegion", previous);
+            return;
+        }
+        if (window->isMaximized() || window->isFullScreen()) {
+            // Windows 11 must still clear a region left by an earlier state; only setting a new one is skipped below.
             if (previous.isValid()) {
                 window->setProperty("rawlineNativeFrameRegion", QVariant());
                 if (!SetWindowRgn(hwnd, nullptr, TRUE)) window->setProperty("rawlineNativeFrameRegion", previous);
