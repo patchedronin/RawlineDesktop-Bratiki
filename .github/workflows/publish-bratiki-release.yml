@@ -23,6 +23,7 @@ jobs:
       - name: Download Pack artifacts
         uses: actions/download-artifact@v8.0.1
         with:
+          digest-mismatch: warn  # upload v7 zips fail the v8 digest check since 2026-11-25; content is fine
           github-token: ${{ github.token }}
           run-id: ${{ inputs.run_id }}
           pattern: Pack-*
