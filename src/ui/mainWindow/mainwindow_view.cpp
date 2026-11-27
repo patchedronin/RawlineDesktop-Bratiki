@@ -387,6 +387,11 @@ void MainWindow::refresh_startstop_button() {
     else if (mode == StartStopButton::Mode::SystemProxy) iconStatus = Icon::TrayIconStatus::SystemProxy;
     else if (mode == StartStopButton::Mode::Core) iconStatus = Icon::TrayIconStatus::Running;
     if (iconStatus != icon_status) {
+#ifdef Q_OS_WIN
+        // WM_SETICON on a visible window that still carries WS_CAPTION makes Windows paint the
+        // classic caption over our title bar, so the caption style goes first (no-op in classic themes).
+        NewStyle::useNativeCaption(this, !NewStyle::active());
+#endif
         QApplication::setWindowIcon(GetTaskbarIcon(iconStatus));
         if (tray != nullptr) tray->setIcon(Icon::GetTrayIcon(iconStatus));
         icon_status = iconStatus;

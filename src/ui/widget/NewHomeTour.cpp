@@ -23,6 +23,7 @@
 #include <QTextStream>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QOperatingSystemVersion>
 #include <QFontMetrics>
 #include "include/database/GroupsRepo.h"
 #include <QPointer>
@@ -532,7 +533,15 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
             };
             checkMainCaption(true);
             checkDialogCaption(true);
-            check(hasRoundedRegion(mainId) && hasRoundedRegion(dialogId), "new Windows frame is still rectangular");
+            // The main window paints its own caption, so the system one has to be off: WM_SETICON on
+            // a visible window that keeps WS_CAPTION paints the classic caption over the client area.
+            check(!hasCaption(mainId), "the main window kept the native caption");
+            const bool win11 = QOperatingSystemVersion::current() >=
+                               QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 22000);
+            // Windows 11 rounds the frame itself; older systems get the region from clipNativeFrame().
+            check(win11 ? !hasRoundedRegion(mainId) : hasRoundedRegion(mainId),
+                  "the main window region does not match the system");
+            check(hasRoundedRegion(dialogId), "new Windows frame is still rectangular");
 #else
             check(dialog.testAttribute(Qt::WA_TranslucentBackground), "new dialog must have a translucent surface");
 #endif
@@ -554,9 +563,10 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 themeManager()->ApplyTheme(theme);
                 QApplication::processEvents();
 #ifdef Q_OS_WIN
-                check(mw->winId() == mainId && dialog.winId() == dialogId && hasCaption(mainId) && hasCaption(dialogId),
+                check(mw->winId() == mainId && dialog.winId() == dialogId && !hasCaption(mainId) && hasCaption(dialogId),
                       "switching back changed the Windows frame");
-                check(hasRoundedRegion(mainId) && hasRoundedRegion(dialogId), "Rawline rounding did not return");
+                check(hasRoundedRegion(dialogId) && (win11 ? !hasRoundedRegion(mainId) : hasRoundedRegion(mainId)),
+                      "Rawline rounding did not return");
                 checkMainCaption(true);
                 checkDialogCaption(true);
 #else
@@ -596,7 +606,7 @@ void NewHome::runTour(MainWindow *mw, const QString &dir) {
                 tour->shoot(QStringLiteral("theme-to-") + classic);
                 themeManager()->ApplyTheme(theme);
 #ifdef Q_OS_WIN
-                check(mw->winId() == mainId && hasCaption(mainId), "main window lost its native caption");
+                check(mw->winId() == mainId && !hasCaption(mainId), "main window kept the native caption");
                 checkMainCaption(true);
 #else
                 check(mw->windowFlags() & Qt::FramelessWindowHint, "main window did not recover the Rawline frame");

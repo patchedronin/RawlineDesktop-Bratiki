@@ -81,6 +81,10 @@ namespace NewStyle {
     void roundCorners(QWidget *window, bool compact);
     // A dialog's own frame in the theme: dark or light caption in its colours, round corners.
     void themeFrame(QWidget *window);
+    // Windows: with the non-client area stripped, a window that keeps WS_CAPTION still gets the
+    // classic caption painted over its client area as soon as the icon changes (WM_SETICON on
+    // connecting). Our own title bar needs the caption style off; classic themes need it back.
+    void useNativeCaption(QWidget *window, bool native);
     // A widget arriving: fades in while it rises into place, as the mobile screens do.
     void rise(QWidget *widget, int distance, int duration);
 }

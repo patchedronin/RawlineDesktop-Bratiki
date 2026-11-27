@@ -733,6 +733,22 @@ void NewStyle::themeFrame(QWidget *window) {
 #endif
 }
 
+void NewStyle::useNativeCaption(QWidget *window, bool native) {
+#ifdef Q_OS_WIN
+    if (!window) return;
+    const auto hwnd = reinterpret_cast<HWND>(window->internalWinId());
+    if (!hwnd) return;
+    const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    if (((style & WS_CAPTION) == WS_CAPTION) == native) return;
+    SetWindowLongPtrW(hwnd, GWL_STYLE, native ? (style | WS_CAPTION)
+                                              : (style & ~static_cast<LONG_PTR>(WS_CAPTION)));
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+#else
+    Q_UNUSED(window) Q_UNUSED(native)
+#endif
+}
+
 bool NewStyle::isTheme(const QString &theme) {
     return theme == QLatin1String(OledTheme) || theme == QLatin1String(WhiteTheme) ||
            theme == QLatin1String(PastelTheme) || theme == QLatin1String(PastelLightTheme) ||
@@ -3964,6 +3980,9 @@ void MainWindow::applyInterfaceStyle(bool animated) {
 void MainWindow::syncWindowFrame() {
 #ifdef Q_OS_WIN
     const bool custom = NewStyle::active();
+    // The custom title bar replaces the system caption: with WS_CAPTION left on, Windows paints the
+    // classic caption over the client area when the window icon changes (WM_SETICON on connecting).
+    NewStyle::useNativeCaption(this, !custom);
     if (const auto id = internalWinId(); id && (property("rawlineCaptionWindow").toULongLong() != quint64(id) ||
                                                property("rawlineCustomCaption").toBool() != custom)) {
         setProperty("rawlineCaptionWindow", quint64(id));

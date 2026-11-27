@@ -62,6 +62,19 @@ class InterfaceRegressions(unittest.TestCase):
         self.assertIn("window->windowType() == Qt::Window", body)
         self.assertIn("clearMask();", body)
 
+    def test_windows_main_window_drops_the_native_caption(self):
+        # WM_SETICON on a visible window that keeps WS_CAPTION makes Windows paint the classic
+        # caption over the custom title bar (the light band on connecting). The caption style has
+        # to go before the icon changes, and come back for classic themes.
+        text = read("src/ui/widget/NewHome.cpp")
+        body = text.split("void NewStyle::useNativeCaption(QWidget *window, bool native)", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("WS_CAPTION", body)
+        self.assertIn("SWP_FRAMECHANGED", body)
+        self.assertIn("NewStyle::useNativeCaption(this, !custom);", text)
+        view = read("src/ui/mainWindow/mainwindow_view.cpp")
+        self.assertLess(view.index("NewStyle::useNativeCaption(this, !NewStyle::active());"),
+                        view.index("QApplication::setWindowIcon("))
+
     def test_windows_and_menus_have_no_black_corners(self):
         text = read("src/ui/widget/NewHome.cpp")
         self.assertIn("clipRoundedWindow(widget, menuRadius);", text)
